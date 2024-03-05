@@ -1,0 +1,24 @@
+Containers
+----------
+- Resolver
+- Name server
+
+Common Components
+-----------------
+- Query    (same format as Response)
+- Response (same format as Query)
+- Resource Record (RR)
+- Cache              (local information)
+- Master file / zone (local information)
+- Resolver algorithm
+- SBELT
+- SLIST
+- Domain name
+
+Name Server Components
+----------------------
+- Configuration
+
+Resolver Components
+-------------------
+- Configuration

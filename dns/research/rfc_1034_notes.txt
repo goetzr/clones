@@ -1,0 +1,134 @@
+General
+-------
+pg. 3  - Choice of TCP/UDP left up to the specific system
+pg. 4  - Iterative approach preferred for UDP
+       - Iterative approach required by DNS, recursive approach optional
+       
+DNS
+---
+pg. 7  - Each node has a label that's 0-63 bytes long
+       - Sibling nodes may not have the same name
+       - NULL (0 length) node is reserved for the root node
+       - Domain name comparisons are case-insensitive
+pg. 8  - Total length of domain name is limitied to 255 bytes
+pg. 9  - IN-ADDR.ARPA domain name used for reverse lookups
+       - Mailbox name to domain name:
+           user@mail.school.edu => user.mail.school.edu
+pg. 11 - Name syntax
+
+Resource Records
+----------------
+pg. 3  - Use names to retrieve host addresses, mailbox data, and other as-yet-undertermined information
+       - All data associated with a name is tagged with a type
+       - All data tagged with a class as well as a type to allow parallel use of different formats for data of type addresses
+pg. 11 - A domain name identifies a node. Each node has a set of resource records, which may be empty.
+pg. 12 - Attributes of a Records
+pg. 13 - TTL handling
+       - Usually represented in highly encoded form when stored in a name server / resolver
+pg. 15 - CNAME rules
+       - If a CNAME RR is present at a node, no other data should be present
+       - CNAME chains (follow) / loops (error)
+       
+Queries / Responses
+-------------------
+pg. 16 - Name server response to query: answer: referral, or error
+       - Query / response structure
+       - Standard queries
+pg. 17 - A name server may return RRs that point toward a name server that has the desired information or RRs that are
+         expected to be useful in interpreting the relevant RRs
+       - QCLASS = * query handling
+pg. 18 - Inverse queries
+
+Name Server
+-----------
+pg. 5  - Configuration includes the identity of local master files and instructions on which non-local master files are to be
+           loaded from foreign servers
+pg. 7  - Must concurrently process queries that arrive from resolvers
+pg. 13 - Many name servers internally form tree or hash structures for the name space, and chain RRs off nodes
+       - RRs are usually represented in highly encoded form when stored in a name server or resolver (save memory?)
+pg. 16 - Name server response to a query: answer, referral, or error
+pg. 18 - The essential task of a name server is to answer queries using data in its zones
+pg. 19 - Name servers can answer queries in a simple manner:
+           The response can always be generated using only local data, and either contains the answer
+           to the question or a referral to other name servers "closer" to the desired info.
+       - A given zone will be available from several servers
+pg. 20 - Data that describes a zone has 4 major parts (all described in the form of RRs):
+           1) Authoritative data for all nodes within the zone
+           2) Data that defines the top node of the zone
+           3) Data that describes delegated subzones
+           4) Data that allows access to name servers for subzones (glue data)
+       - The RRs that describe the top node of the zone are especially important to the zone's management.
+         These RRs are of two types:
+           1) Nameserver RRs that list, one per RR, all of the name servers for the zone,
+           2) and a single SOA RR
+       - RRs that describe subzones are NS RRs that name the name servers for the subzones
+           NOTE: These are NOT part of the authoritative data, and should be exactly the same
+                 as the corresponding RRs in the top node of the subzone
+       - *** Name servers are always associated with zone boundaries, so NS RRs are only found at nodes which are
+             the top node of some zone.
+             In the data that makes up a zone, NS RRs are found at the top node of the zone (and are authoritative)
+             and at cuts around the bottom of hte zone (where they are not authoritative),
+             but never in between.
+pg. 21 - Any zone should have all the data required to set up communications with the name servers for Any
+         subzones .
+         The NS RRs that name the servers for subzones are often not enough for this task since they
+         name the servers, but do not give their addresses.
+       - Address RRs for the name servers of subzones are called "glue" RRs and are not part of the
+         authoritative data
+       - There is no requirement that the servers for a zone reside in a host which has a name in that domain
+pg. 22 - The way that a name server answers a query depends on whether it is operating in recursive mode or not:
+           * Non-recursive mode (required): Can answer query with local information only. The response contains
+                 an error, the answer, or a referral to some other server "closer" to the answer.
+           * Recursive mode (optional): Name server acts as a resolver and returns either an error or
+                 the answer, but never referrals.
+       - RA bit in response set by server to indicate willingness of server to perform recursive queries
+         for the client.
+pg. 23 - RD bit in query indicates client's desire for recursive service for this query.
+       - Name server should never perform recursive servie unless asked via RD.
+       - Response to recursive / non-recursive queries detailed
+           - Indication whether data comes from a zone or is cached
+           - Referral to closer name server
+pg. 24 - RR representation => one option stated is tree structure
+       - Name server query handling algorithm
+pg. 25 - Wildcard handling
+         NOTE: This facility is most often used to create a zone which will be used to forward mail from
+               the Internet to some other mail system.
+pg. 26 - A "*" label in a query name has no special effect
+       - Negative response caching (recommended)
+pg. 27 - Zone transfer - AXFR request (TCP must be used). This may be performed against a secondary
+         name server if the primary fails.
+         
+Resolver
+--------
+pg. 5  - Configuration includes the name servers which should be the primary source of information
+pg. 7  - In the interest of performance, a resolver on the same machine as a name server may
+         share a DB consisting of the zones managed by the name server and the cache managed by the resolver
+pg. 23 - The client can verify that recursive mode was used by checking that both RA and RD are set in the reply
+pg. 29 - Interface user programs to name servers
+       - Located on same machine as these programs
+pg. 30 - Multi-address return recommended
+       - Host address to host name lookup
+       - General lookup
+       - Resolver has one or more of the following to pass back to the client:
+              * One or more RRs giving the requested data
+              * A name error (name does not exist)
+              * A data not found error (name exists, but data of requested types does not)
+       - See note about combining error conditions
+pg. 31 - Alias condition should be signaled back to client (CNAME)
+       - Don't follow alias when QTYPE is CNAME
+       - Handle alias loops and aliases that point to non-existent names
+pg. 32 - Recommended to make "temporary failure" one of the possible results of a resolver function
+       - Resolver may have shared access to zones maintained by a local name server. Authoritative data
+         from the zone must always be used in preference to cached data.
+pg. 33 - SLIST: Includes the equivalent of a zone name, the known name servers for the zone, the known addresses
+                for the name servers, and history information which can be used to suggest which server is likely
+                to be the best one to try next.
+                The zone name equivalent is a match count of the number of labels from the root down which SNAME
+                has in common with the zone being queried. This is used as a measure of how "close" the resolver
+                is to SNAME.
+       - SBELT: A "safety belt" structure of the same form as SLIST. Initialized from a configuration file.
+                Lists servers which should be used when the resolver doesn't have any local information to guide
+                name server selection. Match count is -1, indicating no labels are known to match.
+       - CACHE: Most resolvers convert TTL to absolute time. Discard old RRs when encountered or during
+                periodic sweeps.
+pg. 34 - Algorithm
