@@ -5,5 +5,5 @@ This repository contains clones of well-known network protocols, libraries, and 
 # Clones
 
 | Name                                | Status      | Description                                                                         |
--------------------------------------------------------------------------------------------------------------------------------------------
+|-------------------------------------|-------------|-------------------------------------------------------------------------------------|
 | [DNS](dns/README.md)                | In-work     | A clone of the software components of the Domain Name System.                       |
