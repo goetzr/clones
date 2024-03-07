@@ -65,6 +65,8 @@ fn parse_qname(qname: &[u8]) -> String {
 }
 
 fn parse_response(response: &[u8]) -> String {
+    // I had no time to work on this today. This is all I have to show for it.    
+
     // Header
     let id = response.get_u16();
     let word2 = response.get_u16();
