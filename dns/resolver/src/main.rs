@@ -1,6 +1,8 @@
 use bytes::buf::{Buf, BufMut};
-use std::net::TcpStream;
+use bytes::Bytes;
 use std::io::Write;
+use std::net::TcpStream;
+use std::io::Read;
 
 const NAMESERVER_IP: &'static str = "172.20.10.1";
 
@@ -60,37 +62,70 @@ fn build_request() -> Vec<u8> {
 }
 
 fn parse_qname(qname: &[u8]) -> String {
+    let mut qname = Bytes::from(qname.to_vec());
+    let mut name = String::new();
 
-    String::from("blah")
-}
-
-fn parse_response(response: &[u8]) -> String {
-    // I had no time to work on this today. This is all I have to show for it.    
-
-    // Header
-    let id = response.get_u16();
-    let word2 = response.get_u16();
-    let rcode = (word2 >> 12) & 0xf;
-    let ra = (word2 >> 8) & 1;
-    let rd = (word2 >> 7) & 1;
-    let tc = (word2 >> 6) & 1;
-    let aa = (word2 >> 5) & 1;
-    let opcode = (word2 >> 1) & 0xf;
-    let qr = word2 & 1;
-    let qdcount = response.get_u16();
-    let ancount = response.get_u16();
-    let nscount = response.get_u16();
-    let arcount = response.get_u16();
-
-    if qdcount != 0 {
-        panic!("Question(s) in response");
+    let mut len = qname.get_u8();
+    let mut buf = vec![0; len as usize];
+    qname.copy_to_slice(&mut buf);
+    name.push_str(&String::from_utf8(buf).unwrap());
+    while !qname.is_empty() {
+        len = qname.get_u8();
+        if len == 0 {
+            break;
+        }
+        name.push('.');
+        buf = vec![0; len as usize];
+        qname.copy_to_slice(&mut buf);
+        name.push_str(&String::from_utf8(buf).unwrap());
     }
 
+    name
+}
+
+fn parse_response(sock: &TcpStream) -> String {
+    // TODO: Read from socket
+    // TODO: Read big-endian
+
+    let mut header = [0u8; 12];
+    sock.read_exact(&mut header);
+    sock.
+    let mut response = Bytes::from(response.to_vec());
+
+    // Header
+    let _id = response.get_u16();
+    let word2 = response.get_u16();
+    let _rcode = (word2 >> 12) & 0xf;
+    let _ra = (word2 >> 8) & 1;
+    let _rd = (word2 >> 7) & 1;
+    let _tc = (word2 >> 6) & 1;
+    let _aa = (word2 >> 5) & 1;
+    let _opcode = (word2 >> 1) & 0xf;
+    let _qr = word2 & 1;
+    let qdcount = response.get_u16();
+    assert_ne!(qdcount, 0, "Question(s) in response");
+    let _ancount = response.get_u16();
+    let _nscount = response.get_u16();
+    let _arcount = response.get_u16();
+
     // Answer
-    // TODO: Need to pass reference to current location in response
-    let name = parse_qname(
-    
-    String::from("0.0.0.0")
+    let _name = parse_qname(&response[..]);
+    let r#type = response.get_u16();
+    assert_eq!(r#type, 1, "Type must be A");
+    let class = response.get_u16();
+    assert_eq!(class, 1, "Class must be IN");
+    let _ttl = response.get_u32();
+    let _rdlength = response.get_u16();
+    let rdata = response.get_u32();
+
+    let octets: [u8; 4] = [
+        ((rdata >> 24) & 0xff) as u8,
+        ((rdata >> 16) & 0xff) as u8,
+        ((rdata >> 8) & 0xff) as u8,
+        (rdata & 0xff) as u8,
+    ];
+    let octets = octets.into_iter().map(|b| b.to_string()).collect::<Vec<_>>();
+    octets.join(".")
 }
 
 fn main() {
@@ -102,7 +137,7 @@ fn main() {
     let mut ns_sock = TcpStream::connect((NAMESERVER_IP, 53)).unwrap();
     let req = build_request();
     ns_sock.write(&req).unwrap();
-
+    let ip_addr = parse_response(&ns_sock);
 
     println!("Hello from the resolver");
 }
