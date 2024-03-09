@@ -1,8 +1,8 @@
 use bytes::buf::{Buf, BufMut};
 use bytes::Bytes;
+use std::io::Read;
 use std::io::Write;
 use std::net::TcpStream;
-use std::io::Read;
 
 const NAMESERVER_IP: &'static str = "172.20.10.1";
 
@@ -61,40 +61,36 @@ fn build_request() -> Vec<u8> {
     req
 }
 
-fn parse_qname(qname: &[u8]) -> String {
-    let mut qname = Bytes::from(qname.to_vec());
+fn parse_qname(sock: &mut TcpStream) -> String {
     let mut name = String::new();
 
-    let mut len = qname.get_u8();
-    let mut buf = vec![0; len as usize];
-    qname.copy_to_slice(&mut buf);
-    name.push_str(&String::from_utf8(buf).unwrap());
-    while !qname.is_empty() {
-        len = qname.get_u8();
+    let mut buf = [0u8; 1];
+    let mut label_buf;
+    loop {
+        sock.read_exact(&mut buf[0..1]).unwrap();
+        let len = u8::from_be_bytes(buf.try_into().unwrap());
         if len == 0 {
             break;
         }
-        name.push('.');
-        buf = vec![0; len as usize];
-        qname.copy_to_slice(&mut buf);
-        name.push_str(&String::from_utf8(buf).unwrap());
+        if !name.is_empty() {
+            name.push('.');
+        }
+        label_buf = vec![0; len as usize];
+        sock.read_exact(&mut label_buf).unwrap();
+        name.push_str(&String::from_utf8(label_buf).unwrap());
     }
 
     name
 }
 
-fn parse_response(sock: &TcpStream) -> String {
-    // TODO: Read from socket
-    // TODO: Read big-endian
-
+fn parse_response(sock: &mut TcpStream) -> String {
     let mut header = [0u8; 12];
-    sock.read_exact(&mut header);
-    sock.
-    let mut response = Bytes::from(response.to_vec());
+    sock.read_exact(&mut header).unwrap();
+    let mut header = Bytes::from(header.to_vec());
 
     // Header
-    let _id = response.get_u16();
-    let word2 = response.get_u16();
+    let _id = header.get_u16();
+    let word2 = header.get_u16();
     let _rcode = (word2 >> 12) & 0xf;
     let _ra = (word2 >> 8) & 1;
     let _rd = (word2 >> 7) & 1;
@@ -102,21 +98,28 @@ fn parse_response(sock: &TcpStream) -> String {
     let _aa = (word2 >> 5) & 1;
     let _opcode = (word2 >> 1) & 0xf;
     let _qr = word2 & 1;
-    let qdcount = response.get_u16();
-    assert_ne!(qdcount, 0, "Question(s) in response");
-    let _ancount = response.get_u16();
-    let _nscount = response.get_u16();
-    let _arcount = response.get_u16();
+    let qdcount = header.get_u16();
+    assert_ne!(qdcount, 0, "Question(s) in header");
+    let ancount = header.get_u16();
+    assert!(ancount > 0, "Expected at least one answer");
+    let _nscount = header.get_u16();
+    let _arcount = header.get_u16();
 
     // Answer
-    let _name = parse_qname(&response[..]);
-    let r#type = response.get_u16();
+    let _name = parse_qname(&mut sock);
+    let mut buf = [0u8; 4];
+    sock.read_exact(&mut buf[0..2]).unwrap();
+    let r#type = u16::from_be_bytes(buf[0..2].try_into().unwrap());
     assert_eq!(r#type, 1, "Type must be A");
-    let class = response.get_u16();
+    sock.read_exact(&mut buf[0..2]).unwrap();
+    let class = u16::from_be_bytes(buf[0..2].try_into().unwrap());
     assert_eq!(class, 1, "Class must be IN");
-    let _ttl = response.get_u32();
-    let _rdlength = response.get_u16();
-    let rdata = response.get_u32();
+    sock.read_exact(&mut buf[0..2]).unwrap();
+    let _ttl = u16::from_be_bytes(buf[0..2].try_into().unwrap());
+    sock.read_exact(&mut buf[0..2]).unwrap();
+    let _rdlength = u16::from_be_bytes(buf[0..2].try_into().unwrap());
+    sock.read_exact(&mut buf[0..4]).unwrap();
+    let rdata = u32::from_be_bytes(buf[0..2].try_into().unwrap());
 
     let octets: [u8; 4] = [
         ((rdata >> 24) & 0xff) as u8,
@@ -124,7 +127,10 @@ fn parse_response(sock: &TcpStream) -> String {
         ((rdata >> 8) & 0xff) as u8,
         (rdata & 0xff) as u8,
     ];
-    let octets = octets.into_iter().map(|b| b.to_string()).collect::<Vec<_>>();
+    let octets = octets
+        .into_iter()
+        .map(|b| b.to_string())
+        .collect::<Vec<_>>();
     octets.join(".")
 }
 
@@ -137,7 +143,7 @@ fn main() {
     let mut ns_sock = TcpStream::connect((NAMESERVER_IP, 53)).unwrap();
     let req = build_request();
     ns_sock.write(&req).unwrap();
-    let ip_addr = parse_response(&ns_sock);
+    let _ip_addr = parse_response(&mut ns_sock);
 
     println!("Hello from the resolver");
 }
