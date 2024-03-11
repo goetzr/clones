@@ -58,6 +58,8 @@ fn build_request() -> Vec<u8> {
     req.put_u16(qtype);
     req.put_u16(qclass);
 
+    dbg!(&req);
+
     req
 }
 
