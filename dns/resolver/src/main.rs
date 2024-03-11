@@ -4,7 +4,7 @@ use std::io::Read;
 use std::io::Write;
 use std::net::TcpStream;
 
-const NAMESERVER_IP: &'static str = "172.20.10.1";
+const NAMESERVER_IP: &'static str = "192.168.50.1";
 
 fn encode_qname(name: &str) -> Vec<u8> {
     let mut qname = Vec::new();
@@ -85,6 +85,9 @@ fn parse_qname(sock: &mut TcpStream) -> String {
 
 fn parse_response(sock: &mut TcpStream) -> String {
     let mut header = [0u8; 12];
+    let mut resp = Vec::new();
+    sock.read_to_end(&mut resp).unwrap();
+    dbg!(resp);
     sock.read_exact(&mut header).unwrap();
     let mut header = Bytes::from(header.to_vec());
 
@@ -106,7 +109,7 @@ fn parse_response(sock: &mut TcpStream) -> String {
     let _arcount = header.get_u16();
 
     // Answer
-    let _name = parse_qname(&mut sock);
+    let _name = parse_qname(sock);
     let mut buf = [0u8; 4];
     sock.read_exact(&mut buf[0..2]).unwrap();
     let r#type = u16::from_be_bytes(buf[0..2].try_into().unwrap());
