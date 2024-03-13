@@ -4,7 +4,8 @@ use std::io::Read;
 use std::io::Write;
 use std::net::TcpStream;
 
-const NAMESERVER_IP: &'static str = "192.168.50.1";
+//const NAMESERVER_IP: &'static str = "192.168.50.1";
+const NAMESERVER_IP: &'static str = "172.20.10.1";
 
 fn encode_qname(name: &str) -> Vec<u8> {
     let mut qname = Vec::new();
@@ -36,7 +37,8 @@ fn build_request() -> Vec<u8> {
     let nscount = 0; // number of entries in authority section: ignored in query
     let arcount = 0; // number of entries in additional record section: ignored in query
 
-    req.put_u16(id);
+    req.put_u16_le(0);  // place holder for length
+    req.put_u16_le(id);
     let word2 = (rcode & 0xf) << 12
         | (z & 0x7) << 9
         | (ra & 1) << 8
@@ -45,20 +47,24 @@ fn build_request() -> Vec<u8> {
         | (aa & 1) << 5
         | (opcode & 0xf) << 1
         | (qr & 1);
-    req.put_u16(word2);
-    req.put_u16(qdcount);
-    req.put_u16(ancount);
-    req.put_u16(nscount);
-    req.put_u16(arcount);
+    req.put_u16_le(word2);
+    req.put_u16_le(qdcount);
+    req.put_u16_le(ancount);
+    req.put_u16_le(nscount);
+    req.put_u16_le(arcount);
 
     // Question
     req.put_slice(&encode_qname("google.com"));
     let qtype = 1; // A (host address)
     let qclass = 1; // IN (internet)
-    req.put_u16(qtype);
-    req.put_u16(qclass);
+    req.put_u16_le(qtype);
+    req.put_u16_le(qclass);
 
-    dbg!(&req);
+    let req_len = req.len() - 2;
+    (&mut req[0..2]).write(&req_len.to_le_bytes()).unwrap();
+
+    //dbg!(&req);
+    display_buffer(&req);
 
     req
 }
@@ -86,11 +92,15 @@ fn parse_qname(sock: &mut TcpStream) -> String {
 }
 
 fn parse_response(sock: &mut TcpStream) -> String {
+    println!("Waiting for response...");
+    let mut size = [0u8; 2];
+    sock.read_exact(&mut size).unwrap();
+    let size = u16::from_le_bytes(size);
+    println!("Received {size} byte response.");
     let mut header = [0u8; 12];
-    let mut resp = Vec::new();
-    sock.read_to_end(&mut resp).unwrap();
-    dbg!(resp);
     sock.read_exact(&mut header).unwrap();
+    println!("");
+    display_buffer(&header);
     let mut header = Bytes::from(header.to_vec());
 
     // Header
@@ -137,6 +147,41 @@ fn parse_response(sock: &mut TcpStream) -> String {
         .map(|b| b.to_string())
         .collect::<Vec<_>>();
     octets.join(".")
+}
+
+fn display_buffer(buf: &[u8]) {
+    fn display_line(line: &mut String, bytes: &mut Vec<u8>) {
+        *line += "| ";
+        for &b in bytes.iter() {
+            let c = if b.is_ascii_graphic() { b as char } else { '.' };
+            let ascii = format!("{}", c);
+            *line += &ascii;
+        }
+        println!("{line}");
+        line.clear();
+        bytes.clear();
+    }
+
+    let mut line = String::new();
+    let mut bytes = Vec::new();
+    for (idx, &byte) in buf.into_iter().enumerate() {
+        bytes.push(byte);
+        if idx % 16 == 0 {
+            let address = format!("{idx:02X}: ");
+            line += &address;
+        }
+        let hex = format!("{byte:02X} ");
+        line += &hex;
+        if (idx + 1) % 16 == 0 {
+            display_line(&mut line, &mut bytes);
+        }
+    }
+    if !line.is_empty() {
+        for _ in 0..16 - bytes.len() {
+            line += "   ";
+        }
+        display_line(&mut line, &mut bytes);
+    }
 }
 
 fn main() {
