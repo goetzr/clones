@@ -4,8 +4,9 @@ use std::io::Read;
 use std::io::Write;
 use std::net::TcpStream;
 
-//const NAMESERVER_IP: &'static str = "192.168.50.1";
-const NAMESERVER_IP: &'static str = "172.20.10.1";
+// nmcli dev show | grep 'IP4.DNS'
+const NAMESERVER_IP: &'static str = "192.168.50.1";
+//const NAMESERVER_IP: &'static str = "172.20.10.1";
 
 fn encode_qname(name: &str) -> Vec<u8> {
     let mut qname = Vec::new();
@@ -37,8 +38,8 @@ fn build_request() -> Vec<u8> {
     let nscount = 0; // number of entries in authority section: ignored in query
     let arcount = 0; // number of entries in additional record section: ignored in query
 
-    req.put_u16_le(0);  // place holder for length
-    req.put_u16_le(id);
+    req.put_u16(0);  // place holder for length
+    req.put_u16(id);
     let word2 = (rcode & 0xf) << 12
         | (z & 0x7) << 9
         | (ra & 1) << 8
@@ -47,23 +48,23 @@ fn build_request() -> Vec<u8> {
         | (aa & 1) << 5
         | (opcode & 0xf) << 1
         | (qr & 1);
-    req.put_u16_le(word2);
-    req.put_u16_le(qdcount);
-    req.put_u16_le(ancount);
-    req.put_u16_le(nscount);
-    req.put_u16_le(arcount);
+    req.put_u16(word2);
+    req.put_u16(qdcount);
+    req.put_u16(ancount);
+    req.put_u16(nscount);
+    req.put_u16(arcount);
 
     // Question
     req.put_slice(&encode_qname("google.com"));
     let qtype = 1; // A (host address)
     let qclass = 1; // IN (internet)
-    req.put_u16_le(qtype);
-    req.put_u16_le(qclass);
+    req.put_u16(qtype);
+    req.put_u16(qclass);
 
-    let req_len = req.len() - 2;
-    (&mut req[0..2]).write(&req_len.to_le_bytes()).unwrap();
+    let reqn: u16 = req.len() as u16 - 2;
+    (&mut req[0..2]).write(&reqn.to_be_bytes()).unwrap();
 
-    //dbg!(&req);
+    println!("Request:");
     display_buffer(&req);
 
     req
@@ -77,6 +78,7 @@ fn parse_qname(sock: &mut TcpStream) -> String {
     loop {
         sock.read_exact(&mut buf[0..1]).unwrap();
         let len = u8::from_be_bytes(buf.try_into().unwrap());
+        println!("len = {len}");
         if len == 0 {
             break;
         }
@@ -95,44 +97,85 @@ fn parse_response(sock: &mut TcpStream) -> String {
     println!("Waiting for response...");
     let mut size = [0u8; 2];
     sock.read_exact(&mut size).unwrap();
-    let size = u16::from_le_bytes(size);
+    let size = u16::from_be_bytes(size);
     println!("Received {size} byte response.");
     let mut header = [0u8; 12];
     sock.read_exact(&mut header).unwrap();
-    println!("");
+    println!("Header:");
     display_buffer(&header);
     let mut header = Bytes::from(header.to_vec());
 
     // Header
-    let _id = header.get_u16();
-    let word2 = header.get_u16();
-    let _rcode = (word2 >> 12) & 0xf;
-    let _ra = (word2 >> 8) & 1;
-    let _rd = (word2 >> 7) & 1;
-    let _tc = (word2 >> 6) & 1;
-    let _aa = (word2 >> 5) & 1;
-    let _opcode = (word2 >> 1) & 0xf;
-    let _qr = word2 & 1;
+    let id = header.get_u16();
+    println!("id = {id}");
+    let mut word2 = header.get_u16();
+    let rcode = word2 & 0xf;
+    word2 >>= 4;
+    println!("rcode = {rcode}");
+    word2 >>= 3;    // Discard zero bits
+    let ra = word2 & 1;
+    word2 >>= 1;
+    println!("ra = {ra}");
+    let rd = word2 & 1;
+    word2 >>= 1;
+    println!("rd = {rd}");
+    let tc = word2 & 1;
+    word2 >>= 1;
+    println!("tc = {tc}");
+    let aa = word2 & 1;
+    word2 >>= 1;
+    println!("aa = {aa}");
+    let opcode = word2 & 0xf;
+    word2 >>= 4;
+    println!("opcode = {opcode}");
+    let qr = word2 & 1;
+    println!("qr = {qr}");
     let qdcount = header.get_u16();
-    assert_ne!(qdcount, 0, "Question(s) in header");
+    println!("qdcount = {qdcount}");
     let ancount = header.get_u16();
+    println!("ancount = {ancount}");
     assert!(ancount > 0, "Expected at least one answer");
-    let _nscount = header.get_u16();
-    let _arcount = header.get_u16();
+    let nscount = header.get_u16();
+    println!("nscount = {nscount}");
+    let arcount = header.get_u16();
+    println!("arcount = {arcount}");
+
+    // Question
+    if qdcount == 1 {
+        println!("");
+        println!("Question:");
+        // NOTE: A pointer is being used! Look up "Message compression".
+        let qname = parse_qname(sock);
+        println!("qname = {qname}");
+        let mut buf = [0u8; 2];
+        let qcode = sock.read_exact(&mut buf);
+        let qcode = u16::from_be_bytes(buf[0..2].try_into().unwrap());
+        println!("qcode = {qcode}");
+        let qclass = sock.read_exact(&mut buf);
+        let qclass = u16::from_be_bytes(buf[0..2].try_into().unwrap());
+        println!("qclass = {qclass}");
+    }
 
     // Answer
-    let _name = parse_qname(sock);
+    println!("");
+    println!("Answer:");
+    let name = parse_qname(sock);
+    println!("name = {name}");
     let mut buf = [0u8; 4];
     sock.read_exact(&mut buf[0..2]).unwrap();
     let r#type = u16::from_be_bytes(buf[0..2].try_into().unwrap());
+    println!("type = {}", r#type);
     assert_eq!(r#type, 1, "Type must be A");
     sock.read_exact(&mut buf[0..2]).unwrap();
     let class = u16::from_be_bytes(buf[0..2].try_into().unwrap());
+    println!("class = {class}");
     assert_eq!(class, 1, "Class must be IN");
     sock.read_exact(&mut buf[0..2]).unwrap();
-    let _ttl = u16::from_be_bytes(buf[0..2].try_into().unwrap());
+    let ttl = u32::from_be_bytes(buf[0..4].try_into().unwrap());
+    println!("ttl = {ttl}");
     sock.read_exact(&mut buf[0..2]).unwrap();
-    let _rdlength = u16::from_be_bytes(buf[0..2].try_into().unwrap());
+    let rdlength = u16::from_be_bytes(buf[0..2].try_into().unwrap());
+    println!("rdlength = {rdlength}");
     sock.read_exact(&mut buf[0..4]).unwrap();
     let rdata = u32::from_be_bytes(buf[0..2].try_into().unwrap());
 
