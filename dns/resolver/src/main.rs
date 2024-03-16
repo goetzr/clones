@@ -3,10 +3,6 @@ use std::io::Read;
 use std::io::Write;
 use std::net::TcpStream;
 
-// nmcli dev show | grep 'IP4.DNS'
-const NAMESERVER_IP: &'static str = "192.168.50.1";
-//const NAMESERVER_IP: &'static str = "172.20.10.1";
-
 fn encode_qname(name: &str) -> Vec<u8> {
     let mut qname = Vec::new();
 
@@ -19,7 +15,7 @@ fn encode_qname(name: &str) -> Vec<u8> {
     qname
 }
 
-fn build_request() -> Vec<u8> {
+fn build_request(hostname: &str) -> Vec<u8> {
     let mut req = Vec::new();
 
     // Header
@@ -54,7 +50,7 @@ fn build_request() -> Vec<u8> {
     req.put_u16(arcount);
 
     // Question
-    req.put_slice(&encode_qname("google.com"));
+    req.put_slice(&encode_qname(hostname));
     let qtype = 1; // A (host address)
     let qclass = 1; // IN (internet)
     req.put_u16(qtype);
@@ -212,7 +208,7 @@ fn parse_response(sock: &mut TcpStream) -> String {
     println!("rdlength = {rdlength}");
 
     let rdata = &msg[index..index+4];
-    index += 4;
+    //index += 4;
     let rdata = u32::from_be_bytes(rdata[0..4].try_into().unwrap());
 
     let octets: [u8; 4] = [
@@ -264,17 +260,24 @@ fn display_buffer(buf: &[u8]) {
 }
 
 fn main() {
+    use std::env;
+
+    // Fedora command to get nameserver IP address: nmcli dev show | grep 'IP4.DNS'
+    let args: Vec<_> = env::args().collect();
+    let resolver_ip = args[1].clone();
+    let hostname = args[2].clone();
+
     // Resolve a hostname to an IP address:
     // 1. Connect to nameserver
     // 2. Build a type A request
     // 3. Send the request to the server
     // 4. Receive and parse the response
-    println!("Resolving IP address of google.com...");
-    let mut ns_sock = TcpStream::connect((NAMESERVER_IP, 53)).unwrap();
-    let req = build_request();
+    println!("Resolving IP address of {hostname}...");
+    let mut ns_sock = TcpStream::connect((resolver_ip.as_str(), 53)).unwrap();
+    let req = build_request(&hostname);
     ns_sock.write(&req).unwrap();
     let ip_addr = parse_response(&mut ns_sock);
 
     println!("");
-    println!("IP address for google.com is {ip_addr}");
+    println!("IP address for {hostname} is {ip_addr}");
 }
