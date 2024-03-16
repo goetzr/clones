@@ -262,7 +262,8 @@ fn display_buffer(buf: &[u8]) {
 fn main() {
     use std::env;
 
-    // Fedora command to get nameserver IP address: nmcli dev show | grep 'IP4.DNS'
+    // Fedora command to get nameserver IP address:
+    //     nmcli dev show | grep 'IP4.DNS'
     let args: Vec<_> = env::args().collect();
     let resolver_ip = args[1].clone();
     let hostname = args[2].clone();
