@@ -1,5 +1,4 @@
 use bytes::buf::{Buf, BufMut};
-use bytes::Bytes;
 use std::io::Read;
 use std::io::Write;
 use std::net::TcpStream;
@@ -70,6 +69,42 @@ fn build_request() -> Vec<u8> {
     req
 }
 
+fn parse_name(msg: &[u8], mut index: usize) -> (String, usize) {
+    let mut name = String::new();
+
+    let mut append_to_name = |part: String| {
+        if !name.is_empty() {
+            name.push('.');
+        }
+        name.push_str(part.as_str());
+    };
+    
+    loop {
+        let len = &msg[index..index+1];
+        let len = u8::from_be_bytes(len.try_into().unwrap()) as usize;
+        if len & 0xc0 == 0xc0 {
+            // Pointer. Parse the pointed to name from the message.
+            let pointee_idx = len & 0x3f; 
+            println!("Pointer to name at index 0x{pointee_idx:04X} found at index 0x{index:04X}");
+            index += 1;
+            let (subname, _) = parse_name(msg, pointee_idx);
+            append_to_name(subname);
+            break;
+        }
+        index += 1;
+        if len == 0 {
+            break;
+        }
+        let label = &mut msg[index..index + len];
+        let label = String::from_utf8(label.to_vec()).unwrap();
+        append_to_name(label);
+        index += len;
+    }
+
+    (name, index)
+}
+
+/*
 fn read_name(sock: &mut TcpStream, msg: &mut [u8], mut index: usize) -> (String, usize) {
     fn append_to_name(name: &mut String, part: String) {
         if !name.is_empty() {
@@ -124,18 +159,20 @@ fn parse_pointed_to_name(msg: &[u8], mut index: usize) -> String {
 
     name
 }
+*/
 
 fn parse_response(sock: &mut TcpStream) -> String {
     println!("Waiting for response...");
     let mut size = [0u8; 2];
     sock.read_exact(&mut size).unwrap();
-    let size = u16::from_be_bytes(size);
+    let size = u16::from_be_bytes(size) as usize;
     println!("Received {size} byte response.");
 
-    let mut msg = Vec::with_capacity(size);
-    let header = &mut msg[0..12];
-    sock.read_exact(header).unwrap();
+    let mut msg = vec![0u8; size];
+    sock.read_exact(&mut msg).unwrap();
+
     println!("Header:");
+    let header = &msg[0..12];
     display_buffer(&header);
 
     // Header
@@ -179,7 +216,7 @@ fn parse_response(sock: &mut TcpStream) -> String {
     if qdcount == 1 {
         println!("");
         println!("Question:");
-        let (qname, mut index) = read_name(sock, &mut msg, index);
+        let (qname, mut index) = parse_name(&msg, index);
         println!("qname = {qname}");
         let mut buf = [0u8; 2];
         let qcode = sock.read_exact(&mut buf);
@@ -195,7 +232,7 @@ fn parse_response(sock: &mut TcpStream) -> String {
     // Answer
     println!("");
     println!("Answer:");
-    let (name, mut index) = read_name(sock, &mut msg, index);
+    let (name, mut index) = parse_name(&msg, index);
     println!("name = {name}");
     let mut buf = [0u8; 4];
     sock.read_exact(&mut buf[0..2]).unwrap();
