@@ -63,6 +63,7 @@ fn build_request() -> Vec<u8> {
     let reqn: u16 = req.len() as u16 - 2;
     (&mut req[0..2]).write(&reqn.to_be_bytes()).unwrap();
 
+    println!("");
     println!("Request:");
     display_buffer(&req);
 
@@ -84,13 +85,13 @@ fn parse_name(msg: &mut [u8], index: &mut usize) -> String {
         let len = &msg[new_idx..new_idx+1];
         let len = u8::from_be_bytes(len.try_into().unwrap()) as usize;
         if len & 0xc0 == 0xc0 {
-            // Pointer. Parse the pointed to name from the message.
-            let mut pointee_idx = len & 0x3f; 
-            // NOTE: RFC 1035 states this index is relative to the start of the message,
-            //       However the server returns an index relative to the end of the header.
-            pointee_idx += 12;
-            println!("Pointer to name at index 0x{pointee_idx:04X} found at index 0x{new_idx:04X}");
-            new_idx += 1;
+            // Pointer. 
+            // The next byte contains the low 8 bits of the 14-bit index
+            // of the pointed-to name.
+            let low_byte = u8::from_be_bytes(msg[new_idx+1..new_idx+2].try_into().unwrap());
+            new_idx += 2;
+            let mut pointee_idx = (len & 0x3f) << 8 | low_byte as usize;
+            // Parse the pointed to name from the message.
             let subname = parse_name(msg, &mut pointee_idx);
             append_to_name(subname);
             break;
@@ -110,11 +111,12 @@ fn parse_name(msg: &mut [u8], index: &mut usize) -> String {
 }
 
 fn parse_response(sock: &mut TcpStream) -> String {
+    println!("");
     println!("Waiting for response...");
     let mut size = [0u8; 2];
     sock.read_exact(&mut size).unwrap();
     let size = u16::from_be_bytes(size) as usize;
-    println!("Received {size} byte response.");
+    println!("Received {size} byte response:");
 
     let mut msg = vec![0u8; size];
     sock.read_exact(&mut msg).unwrap();
@@ -125,6 +127,8 @@ fn parse_response(sock: &mut TcpStream) -> String {
     index += 12;
 
     // Header
+    println!("");
+    println!("Header:");
     let id = header.get_u16();
     println!("id = {id}");
     let mut word2 = header.get_u16();
@@ -185,35 +189,32 @@ fn parse_response(sock: &mut TcpStream) -> String {
     let name = parse_name(&mut msg, &mut index);
     println!("name = {name}");
 
-    // NOTE: Up to this point everything has been big-endian per RFC 1035.
-    //       However, from now the server starts using little-endian order.
     let r#type = &msg[index..index+2];
     index += 2;
-    let r#type = u16::from_le_bytes(r#type[0..2].try_into().unwrap());
+    let r#type = u16::from_be_bytes(r#type[0..2].try_into().unwrap());
     println!("type = {}", r#type);
+    assert_eq!(r#type, 1, "Type must be A");
 
     let class = &msg[index..index+2];
     index += 2;
-    let class = u16::from_le_bytes(class[0..2].try_into().unwrap());
+    let class = u16::from_be_bytes(class[0..2].try_into().unwrap());
     println!("class = {class}");
+    assert_eq!(class, 1, "Class must be IN");
 
     let ttl = &msg[index..index+4];
     index += 4;
-    let ttl = u32::from_le_bytes(ttl[0..4].try_into().unwrap());
+    let ttl = u32::from_be_bytes(ttl[0..4].try_into().unwrap());
     println!("ttl = {ttl}");
 
     let rdlength = &msg[index..index+2];
     index += 2;
-    let rdlength = u16::from_le_bytes(rdlength[0..2].try_into().unwrap());
+    let rdlength = u16::from_be_bytes(rdlength[0..2].try_into().unwrap());
     println!("rdlength = {rdlength}");
 
     let rdata = &msg[index..index+4];
     index += 4;
-    let rdata = u32::from_le_bytes(rdata[0..4].try_into().unwrap());
+    let rdata = u32::from_be_bytes(rdata[0..4].try_into().unwrap());
 
-    String::from("")
-
-    /*
     let octets: [u8; 4] = [
         ((rdata >> 24) & 0xff) as u8,
         ((rdata >> 16) & 0xff) as u8,
@@ -225,10 +226,6 @@ fn parse_response(sock: &mut TcpStream) -> String {
         .map(|b| b.to_string())
         .collect::<Vec<_>>();
     octets.join(".")
-*/
-
-    //assert_eq!(r#type, 1, "Type must be A");
-    //assert_eq!(class, 1, "Class must be IN");
 }
 
 fn display_buffer(buf: &[u8]) {
@@ -272,10 +269,12 @@ fn main() {
     // 2. Build a type A request
     // 3. Send the request to the server
     // 4. Receive and parse the response
+    println!("Resolving IP address of google.com...");
     let mut ns_sock = TcpStream::connect((NAMESERVER_IP, 53)).unwrap();
     let req = build_request();
     ns_sock.write(&req).unwrap();
-    let _ip_addr = parse_response(&mut ns_sock);
+    let ip_addr = parse_response(&mut ns_sock);
 
-    println!("Hello from the resolver");
+    println!("");
+    println!("IP address for google.com is {ip_addr}");
 }
