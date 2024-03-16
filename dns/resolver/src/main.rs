@@ -209,6 +209,8 @@ fn parse_response(sock: &mut TcpStream) -> String {
 
     let rdata = &msg[index..index+4];
     //index += 4;
+    println!("rdata:");
+    display_buffer(rdata);
     let rdata = u32::from_be_bytes(rdata[0..4].try_into().unwrap());
 
     let octets: [u8; 4] = [
@@ -259,12 +261,43 @@ fn display_buffer(buf: &[u8]) {
     }
 }
 
+fn print_usage() {
+    println!(r"Resolves the specified hostname to an IP address.
+
+You must manually specify the IP address of your DNS nameserver.
+For example, on Fedora Linux, this information can be retrieved
+by running the following command:
+    nmcli dev show | grep 'IP4.DNS'
+
+NOTE: You must ensure the IP address DNS record for this hostname is
+      cached on your machine prior to running this application.
+      Otherwise, this application will crash.
+      You can cache the hostname's IP address DNS record by pinging the hostname:
+        ping google.com
+      will cache the IP address DNS record for google.com.
+
+USAGE:
+    resolver [-h, --help] <NAMESERVER-IP> <HOSTNAME>
+
+OPTIONS:
+    -h, --help     Prints this usage message then exits.
+
+ARGUMENTS:
+  NAMESERVER-IP    The IP address of your DNS nameserver.
+  HOSTNAME         The hostname to resolve to an IP address.");
+}
+
 fn main() {
     use std::env;
 
     // Fedora command to get nameserver IP address:
     //     nmcli dev show | grep 'IP4.DNS'
     let args: Vec<_> = env::args().collect();
+    if args.len() == 1 || args[1] == "-h" || args[1] == "--help" {
+        print_usage();
+        return;
+    }
+
     let resolver_ip = args[1].clone();
     let hostname = args[2].clone();
 
