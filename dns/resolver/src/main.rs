@@ -69,8 +69,9 @@ fn build_request() -> Vec<u8> {
     req
 }
 
-fn parse_name(msg: &[u8], mut index: usize) -> (String, usize) {
+fn parse_name(msg: &mut [u8], index: &mut usize) -> String {
     let mut name = String::new();
+    let mut new_idx = *index;
 
     let mut append_to_name = |part: String| {
         if !name.is_empty() {
@@ -80,86 +81,33 @@ fn parse_name(msg: &[u8], mut index: usize) -> (String, usize) {
     };
     
     loop {
-        let len = &msg[index..index+1];
+        let len = &msg[new_idx..new_idx+1];
         let len = u8::from_be_bytes(len.try_into().unwrap()) as usize;
         if len & 0xc0 == 0xc0 {
             // Pointer. Parse the pointed to name from the message.
-            let pointee_idx = len & 0x3f; 
-            println!("Pointer to name at index 0x{pointee_idx:04X} found at index 0x{index:04X}");
-            index += 1;
-            let (subname, _) = parse_name(msg, pointee_idx);
+            let mut pointee_idx = len & 0x3f; 
+            // NOTE: RFC 1035 states this index is relative to the start of the message,
+            //       However the server returns an index relative to the end of the header.
+            pointee_idx += 12;
+            println!("Pointer to name at index 0x{pointee_idx:04X} found at index 0x{new_idx:04X}");
+            new_idx += 1;
+            let subname = parse_name(msg, &mut pointee_idx);
             append_to_name(subname);
             break;
         }
-        index += 1;
+        new_idx += 1;
         if len == 0 {
             break;
         }
-        let label = &mut msg[index..index + len];
+        let label = &mut msg[new_idx..new_idx+len];
         let label = String::from_utf8(label.to_vec()).unwrap();
         append_to_name(label);
-        index += len;
+        new_idx += len;
     }
 
-    (name, index)
-}
-
-/*
-fn read_name(sock: &mut TcpStream, msg: &mut [u8], mut index: usize) -> (String, usize) {
-    fn append_to_name(name: &mut String, part: String) {
-        if !name.is_empty() {
-            name.push('.');
-        }
-        name.push_str(part.as_str());
-    }
-
-    let mut name_idx = index;
-    loop {
-        sock.read_exact(&mut msg[name_idx..name_idx + 1]).unwrap();
-        let len = u8::from_be_bytes(buf.try_into().unwrap());
-        if len & 0xc0 == 0xc0 {
-            // Pointer. Parse the pointed to name from the message.
-            let pointee_idx = len & 0x3f; 
-            println!("Pointer to name at index 0x{pointee_idx:04X} found at index 0x{index:04X}");
-            index += 1;
-            let sub_name = parse_pointed_to_name(msg, pointee_idx);
-            append_to_name(&mut name, sub_name);
-            break;
-        }
-        index += 1;
-        if len == 0 {
-            break;
-        }
-        let label = &mut msg[index..index + len];
-        sock.read_exact(label).unwrap();
-        let label = String::from_utf8(label).unwrap();
-        append_to_name(&mut name, label);
-        index += len;
-    }
-
-    (name, index)
-}
-
-fn parse_pointed_to_name(msg: &[u8], mut index: usize) -> String {
-    let mut name = String::new();
-
-    loop {
-        let len = u8::from_be_bytes(msg[index..index+1].try_into().unwrap());
-        index += 1;
-        assert_ne!(len & 0xc0, 0xc0, "Pointer encountered in pointed-to name.");
-        if len == 0 {
-            break;
-        }
-        if !name.is_empty() {
-            name.push('.');
-        }
-        let label = &msg[index..index + len];
-        name.push_str(&String::from_utf8(label).unwrap());
-    }
-
+    *index = new_idx;
     name
 }
-*/
 
 fn parse_response(sock: &mut TcpStream) -> String {
     println!("Waiting for response...");
@@ -170,10 +118,11 @@ fn parse_response(sock: &mut TcpStream) -> String {
 
     let mut msg = vec![0u8; size];
     sock.read_exact(&mut msg).unwrap();
+    display_buffer(&msg);
+    let mut index : usize = 0;
 
-    println!("Header:");
-    let header = &msg[0..12];
-    display_buffer(&header);
+    let mut header = &msg[0..12];
+    index += 12;
 
     // Header
     let id = header.get_u16();
@@ -210,53 +159,61 @@ fn parse_response(sock: &mut TcpStream) -> String {
     let arcount = header.get_u16();
     println!("arcount = {arcount}");
 
-    let mut index = 12;
-
     // Question
     if qdcount == 1 {
         println!("");
         println!("Question:");
-        let (qname, mut index) = parse_name(&msg, index);
+
+        let qname = parse_name(&mut msg, &mut index);
         println!("qname = {qname}");
-        let mut buf = [0u8; 2];
-        let qcode = sock.read_exact(&mut buf);
+
+        let qcode = &msg[index..index+2];
+        let qcode = u16::from_be_bytes(qcode[0..2].try_into().unwrap());
         index += 2;
-        let qcode = u16::from_be_bytes(buf[0..2].try_into().unwrap());
         println!("qcode = {qcode}");
-        let qclass = sock.read_exact(&mut buf);
+
+        let qclass = &msg[index..index+2];
+        let qclass = u16::from_be_bytes(qclass[0..2].try_into().unwrap());
         index += 2;
-        let qclass = u16::from_be_bytes(buf[0..2].try_into().unwrap());
         println!("qclass = {qclass}");
     }
 
     // Answer
     println!("");
     println!("Answer:");
-    let (name, mut index) = parse_name(&msg, index);
-    println!("name = {name}");
-    let mut buf = [0u8; 4];
-    sock.read_exact(&mut buf[0..2]).unwrap();
-    index += 2;
-    let r#type = u16::from_be_bytes(buf[0..2].try_into().unwrap());
-    println!("type = {}", r#type);
-    assert_eq!(r#type, 1, "Type must be A");
-    sock.read_exact(&mut buf[0..2]).unwrap();
-    index += 2;
-    let class = u16::from_be_bytes(buf[0..2].try_into().unwrap());
-    println!("class = {class}");
-    assert_eq!(class, 1, "Class must be IN");
-    sock.read_exact(&mut buf[0..4]).unwrap();
-    index += 4;
-    let ttl = u32::from_be_bytes(buf[0..4].try_into().unwrap());
-    println!("ttl = {ttl}");
-    sock.read_exact(&mut buf[0..2]).unwrap();
-    index += 2;
-    let rdlength = u16::from_be_bytes(buf[0..2].try_into().unwrap());
-    println!("rdlength = {rdlength}");
-    sock.read_exact(&mut buf[0..4]).unwrap();
-    index += 4;
-    let rdata = u32::from_be_bytes(buf[0..2].try_into().unwrap());
 
+    let name = parse_name(&mut msg, &mut index);
+    println!("name = {name}");
+
+    // NOTE: Up to this point everything has been big-endian per RFC 1035.
+    //       However, from now the server starts using little-endian order.
+    let r#type = &msg[index..index+2];
+    index += 2;
+    let r#type = u16::from_le_bytes(r#type[0..2].try_into().unwrap());
+    println!("type = {}", r#type);
+
+    let class = &msg[index..index+2];
+    index += 2;
+    let class = u16::from_le_bytes(class[0..2].try_into().unwrap());
+    println!("class = {class}");
+
+    let ttl = &msg[index..index+4];
+    index += 4;
+    let ttl = u32::from_le_bytes(ttl[0..4].try_into().unwrap());
+    println!("ttl = {ttl}");
+
+    let rdlength = &msg[index..index+2];
+    index += 2;
+    let rdlength = u16::from_le_bytes(rdlength[0..2].try_into().unwrap());
+    println!("rdlength = {rdlength}");
+
+    let rdata = &msg[index..index+4];
+    index += 4;
+    let rdata = u32::from_le_bytes(rdata[0..4].try_into().unwrap());
+
+    String::from("")
+
+    /*
     let octets: [u8; 4] = [
         ((rdata >> 24) & 0xff) as u8,
         ((rdata >> 16) & 0xff) as u8,
@@ -268,6 +225,10 @@ fn parse_response(sock: &mut TcpStream) -> String {
         .map(|b| b.to_string())
         .collect::<Vec<_>>();
     octets.join(".")
+*/
+
+    //assert_eq!(r#type, 1, "Type must be A");
+    //assert_eq!(class, 1, "Class must be IN");
 }
 
 fn display_buffer(buf: &[u8]) {
