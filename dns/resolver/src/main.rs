@@ -3,18 +3,6 @@ use std::io::Read;
 use std::io::Write;
 use std::net::TcpStream;
 
-fn encode_qname(name: &str) -> Vec<u8> {
-    let mut qname = Vec::new();
-
-    name.split('.').for_each(|label| {
-        qname.put_u8(label.len() as u8);
-        qname.put_slice(label.as_bytes());
-    });
-    qname.put_u8(0);
-
-    qname
-}
-
 fn build_request(hostname: &str) -> Vec<u8> {
     let mut req = Vec::new();
 
@@ -50,7 +38,7 @@ fn build_request(hostname: &str) -> Vec<u8> {
     req.put_u16(arcount);
 
     // Question
-    req.put_slice(&encode_qname(hostname));
+    req.put_slice(&resolver::encode_name(hostname));
     let qtype = 1; // A (host address)
     let qclass = 1; // IN (internet)
     req.put_u16(qtype);
