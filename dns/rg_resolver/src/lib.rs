@@ -1,6 +1,9 @@
 use bytes::buf::{Buf, BufMut};
 use std::fmt;
 
+// Rust-native API
+// let client = rg_resolver::
+
 macro_rules! invalid_field_value {
     ($field_name:literal, $value:expr) => {
         Err(Error::InvalidFieldValue {
