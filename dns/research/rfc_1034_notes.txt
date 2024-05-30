@@ -10,7 +10,7 @@ pg. 7  - Each node has a label that's 0-63 bytes long
        - Sibling nodes may not have the same name
        - NULL (0 length) node is reserved for the root node
        - Domain name comparisons are case-insensitive
-pg. 8  - Total length of domain name is limitied to 255 bytes
+pg. 8  - Total length of domain name is limited to 255 bytes
 pg. 9  - IN-ADDR.ARPA domain name used for reverse lookups
        - Mailbox name to domain name:
            user@mail.school.edu => user.mail.school.edu
@@ -31,7 +31,7 @@ pg. 15 - CNAME rules
        
 Queries / Responses
 -------------------
-pg. 16 - Name server response to query: answer: referral, or error
+pg. 16 - Name server response to query: answer, referral, or error
        - Query / response structure
        - Standard queries
 pg. 17 - A name server may return RRs that point toward a name server that has the desired information or RRs that are

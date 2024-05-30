@@ -34,10 +34,9 @@ pub async fn run() -> Result<()> {
     Ok(())
 }
 
-async fn process(_socket: TcpStream) {
-    tracing::info!("Processing client...");
-    sleep(Duration::from_secs(3)).await;
-    tracing::info!("Done!");
+async fn process(socket: TcpStream) {
+    // A request is a JSON object
+    // Cache responses
 }
 
 async fn bind_listener(port: u16) -> io::Result<TcpListener> {

@@ -1,0 +1,60 @@
+// Name to addresses
+// -----------------
+
+// Request
+{ "id": 23,
+  "type": 1,              // Name to addresses
+  "name": "google.com"
+}
+
+// Successful response
+{ "req_id": 23,
+  "status": 1,            // 1: success, 0: error
+  "result": [
+        "192.168.0.1",
+        "192.168.0.2",
+        "FE01:24BE:8733:BDAC:1106:CCF4:5589:DA23"
+  ]
+}
+
+// Error response
+{ "req_id": 23,
+  "status": 0,
+  "reason": 1             // 1: Name Error (NE), 2: Data not found
+}
+
+==================================================================================
+
+// Address to name
+// ---------------
+
+// Request
+{ "id": 24,
+  "type": 2,               // Address to name
+  "address": "192.168.1.100"
+}
+
+// Successful response
+{ "req_id": 24,
+  "status": 1,
+  "result": "google.com"
+}
+
+==================================================================================
+
+// General
+// -------
+
+// Request
+{ "id": 25,
+  "type": 3,                // General
+  "qname": ,
+  "qtype": ,
+  "qclass": 
+}
+
+// Successful response
+{ "req_id": 25,
+  "status": 1,
+  "result": ? // Binary RRs?
+}
