@@ -1,29 +1,55 @@
+use std::io;
 use std::net::{Ipv4Addr, SocketAddrV4};
-use tokio::net::TcpListener;
-use tokio::signal::ctrl_c;
+use std::time::Duration;
+use tokio::net::{TcpListener, TcpStream};
+use tokio::signal;
+use tokio::time::sleep;
 
 pub type Error = Box<dyn std::error::Error + Sync + Send + 'static>;
 pub type Result<T> = std::result::Result<T, Error>;
 
 pub async fn run() -> Result<()> {
+    let subscriber = tracing_subscriber::FmtSubscriber::new();
+    tracing::subscriber::set_global_default(subscriber)?;
+
     let config = parse_command_line();
-    let bind_addr = SocketAddrV4::new(Ipv4Addr::LOCALHOST, config.port);
-    let listener = TcpListener::bind(bind_addr).await?;
+    let listener = bind_listener(config.port).await?;
 
     tokio::select! {
-        val = listener.accept() => {
-            
+        res = async {
+            loop {
+                let (socket, _) = listener.accept().await?;
+                tokio::spawn(async {
+                    process(socket).await;
+                });
+            }
+            #[allow(unused)]
+            Ok::<_, io::Error>(())
+        } => {
+            res?
         }
+        _ = signal::ctrl_c() => {}
     }
 
     Ok(())
 }
 
-pub struct Config {
-    pub port: u16,
+async fn process(_socket: TcpStream) {
+    tracing::info!("Processing client...");
+    sleep(Duration::from_secs(3)).await;
+    tracing::info!("Done!");
 }
 
-pub fn parse_command_line() -> Config {
+async fn bind_listener(port: u16) -> io::Result<TcpListener> {
+    let bind_addr = SocketAddrV4::new(Ipv4Addr::LOCALHOST, port);
+    TcpListener::bind(bind_addr).await.into()
+}
+
+struct Config {
+    port: u16,
+}
+
+fn parse_command_line() -> Config {
     let matches = clap::command!()
         .arg(
             clap::Arg::new("port")
@@ -35,7 +61,7 @@ pub fn parse_command_line() -> Config {
                 .help("The TCP port number to listen on for client connections."),
         )
         .get_matches();
-    
+
     let &port = matches.get_one("port").unwrap();
     Config { port }
 }

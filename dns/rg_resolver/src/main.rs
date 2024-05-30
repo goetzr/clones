@@ -1,5 +1,3 @@
-use rg_resolver;
-
 #[tokio::main]
 async fn main() {
     if let Err(e) = rg_resolver::run().await {
