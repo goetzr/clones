@@ -1,8 +1,7 @@
 [package]
-name = "rg-resolver-client"
+name = "rg-resolver-common"
 version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-rg-resolver-common = { path = "../rg-resolver-common" }
 serde = { version = "1.0.203", features = ["derive"] }

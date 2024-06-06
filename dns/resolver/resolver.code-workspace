@@ -1,10 +1,16 @@
 {
 	"folders": [
 		{
-			"path": "research"
+			"path": "rg-resolver"
 		},
 		{
-			"path": "resolver/rg-resolver-client"
+			"path": "rg-resolver-client"
+		},
+		{
+			"path": "../research"
+		},
+		{
+			"path": "rg-resolver-common"
 		}
 	],
 	"settings": {}
