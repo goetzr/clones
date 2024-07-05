@@ -1,7 +1,0 @@
-1. Receive query whose QTYPE is not CNAME.
-2. Search the managed zones and find at least one zone that's an ancestor of QNAME.
-   Select the closest ancestor zone.
-3. Start matching QNAME down, label by label, to the RRs in the selected zone.
-4. All labels in QNAME match the corresponding labels in at least one RR.
-5. Copy all RRs whose type matches QTYPE into the answer section of the response.
-6. Using local information only, add other RRs which may be useful to the additional section of the response. 

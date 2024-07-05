@@ -1,0 +1,132 @@
+Multiple Concurrent JSON Requests
+---------------------------------
+Is this possible with the current rust interface???
+NOTE: Explains need for the 'id' field.
+{
+    { "jsonrpc": "2.0", "id": 1, "method": "host_name_to_address", "params": "www.google.com" },
+    { "jsonrpc": "2.0", "id": 2, "method": "host_name_to_address", "params": "www.facebook.com" }
+}
+
+JSON Request
+------------
+{ "jsonrpc": "2.0", "id": 3, "method": "host_name_to_address", "params": [ "www.google.com" ] }
+{ "jsonrpc": "2.0", "id": 3, "method": "address_to_host_name", "params": [ "192.168.1.1" ] }
+{ "jsonrpc": "2.0", "id": 3, "method": "general_lookup", "params": {
+    qname: "us-east.google.com",
+    qtype: "CNAME",
+    qclass: "IN"
+}}
+
+JSON Successful Response
+------------------------
+{ "jsonrpc": "2.0", "id": 3, "result": ["192.168.1.2", "2001:db8:85a3::8a2e:370:7334"] }
+{ "jsonrpc": "2.0", "id": 3, "result": "www.google.com" }
+NOTE: Base64-encoded, back-to-back, raw resource records
+{ "jsonrpc": "2.0", "id": 3, "result": "SGVsbG8sIFdvcmxkIQ==" }
+
+JSON Failed Response
+--------------------
+{ "jsonrpc": "2.0", "id": 3, "error": { "code": -10, "message": "name error"} }
+
+Rust
+----
+#[derive(Serialize, Deserialize)]
+struct JsonRpc {
+    jsonrpc: String,
+    id: u32,
+    method: String,
+}
+
+impl JsonRpc {
+    fn new(id: u32, method: String) -> JsonRcp {
+        JsonRpc { jsonrpc: String::from("2.0"), id, method }
+    }
+}
+
+struct HostNameToAddress {
+    #[serde(flatten)]
+    jsonrpc: JsonRpc,
+
+    params: [String; 1],
+}
+
+impl HostNameToAddress {
+    const METHOD_NAME: &'static str = "host_name_to_address";
+
+    fn new(id: u32, domain_name: String) -> HostNameToAddress {
+        use HostNameToAddress::METHOD_NAME;
+        let jsonrpc = JsonRpc::new(id, String::from(METHOD_NAME));
+        HostNameToAddress { jsonrpc, params: [domain_name] }
+    }
+}
+
+struct GeneralLookup {
+    #[serde(flatten)]
+    jsonrpc: JsonRpc,
+
+    params: [String; 1],
+}
+
+impl AddressToHostName {
+    const METHOD_NAME: &'static str = "address_to_host_name";
+
+    fn new(id: u32, address: String) -> AddressToHostName {
+        use AddressToHostName::METHOD_NAME;
+        let jsonrpc = JsonRpc::new(id, String::from(METHOD_NAME));
+        AddressToHostName { jsonrpc, params: [address] }
+    }
+}
+
+struct GeneralLookupParams {
+    qname: String,
+    qtype: String,
+    qclass: String,
+}
+
+impl GeneralLookupParams {
+    fn new(qname: String, qtype: String, qclass: String) -> GeneralLookupParams {
+        GeneralLookupParams { qname, qtype, qclass }
+    }
+}
+
+struct GeneralLookup {
+    #[serde(flatten)]
+    jsonrpc: JsonRpc,
+
+    #[serde(flatten)]
+    params: GeneralLookupParams,
+}
+
+impl GeneralLookup {
+    const METHOD_NAME: &'static str = "general_lookup";
+
+    fn new(id: u32, qname: String, qtype: String, qclass: String) -> GeneralLookup {
+        use GeneralLookup::METHOD_NAME;
+        let jsonrpc = JsonRpc::new(id, String::from(METHOD_NAME));
+        let params = GeneralLookupParams::new(qname, qtype, qclass);
+        GeneralLookup { jsonrpc, params }
+    }
+}
+
+let request: String = host_name_to_address("www.google.com");
+
+fn host_name_to_address(domain_name: String) -> HostNameToAddress {
+    // TODO: Need static atomic u32 holding next available ID.
+    HostNameToAddress(next_id, domain_name)
+}
+
+// TODO: Which style works better given we'll have a C API?
+let request: HostNameToAddress = host_name_to_address("www.google.com");
+let request: String = host_name_to_address("www.google.com");
+
+// TODO: Maybe the resolver will only support a single request per client at a time.
+// https://stackoverflow.com/questions/50021897/how-to-implement-serdeserialize-for-a-boxed-trait-object
+trait Request {}
+let mut request_set = RequestSet::new();
+
+
+C application
+-------------
+
+int req_set_id = request_set_create();
+request_set_

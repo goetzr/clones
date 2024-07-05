@@ -4,13 +4,10 @@
 			"path": "rg-resolver"
 		},
 		{
-			"path": "rg-resolver-client"
-		},
-		{
 			"path": "../research"
 		},
 		{
-			"path": "rg-resolver-common"
+			"path": "../../../../Documents"
 		}
 	],
 	"settings": {}
