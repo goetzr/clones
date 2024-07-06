@@ -44,7 +44,6 @@ impl<'a> ResourceRecordParser<'a> {
     }
 }
 
-#[derive(Debug)]
 struct ResourceRecordNameParser<'a> {
     data: &'a [u8],
     unparsed: &'a [u8],
@@ -55,7 +54,6 @@ impl<'a> ResourceRecordNameParser<'a> {
         Self { data, unparsed: data }
     }
 
-    //#[instrument(level = "debug")]
     fn parse(&mut self) -> anyhow::Result<String> {
         debug!("Called parse");
         let mut name = String::new();
@@ -66,11 +64,10 @@ impl<'a> ResourceRecordNameParser<'a> {
             } else {
                 anyhow::bail!("incomplete name")
             };
-            debug!(len, "Parsed length byte");
-            use std::io::Write;
-            let mut stdout = std::io::stdout();
-            stdout.flush();
+            debug!(len, "Peeked length byte");
             if len == 0 {
+                // Advance past the length byte we only peeked at.
+                let _ = self.unparsed.get_u8();
                 if name.len() <= 255 {
                     return Ok(name);
                 } else {
@@ -87,8 +84,12 @@ impl<'a> ResourceRecordNameParser<'a> {
                 // Continue parsing the name starting at the pointed to location.
                 continue;
             }
+            // Advance past the length byte we only peeked at.
+            let _ = self.unparsed.get_u8();
             let label = if self.unparsed.remaining() >= len {
-                let label = String::from_utf8(self.unparsed[..len].to_vec())
+                let label = &self.unparsed[..len];
+                self.unparsed.advance(len);
+                let label = String::from_utf8(label.to_vec())
                     .with_context(|| "label not valid UTF-8")?;
                 if label.is_ascii() {
                     label
@@ -158,16 +159,74 @@ mod test {
 
     #[test]
     fn serialize_name_helper() {
-        let serialized = serialize_name("mail.google.com.");
-        let expected: [u8; 17] = [4, b'm', b'a', b'i', b'l', 6, b'g', b'o', b'o', b'g', b'l', b'e', 3, b'c', b'o', b'm', 0];
+        let serialized = serialize_name("google");
+        let expected = [6, b'g', b'o', b'o', b'g', b'l', b'e'];
+        assert_eq!(serialized, expected);
+
+        let serialized = serialize_name("google.com");
+        let expected = [6, b'g', b'o', b'o', b'g', b'l', b'e', 3, b'c', b'o', b'm'];
         assert_eq!(serialized.as_slice(), &expected);
+
+        let serialized = serialize_name("mail.google.com.");
+        let expected = [4, b'm', b'a', b'i', b'l', 6, b'g', b'o', b'o', b'g', b'l', b'e', 3, b'c', b'o', b'm', 0];
+        assert_eq!(serialized.as_slice(), &expected);
+    }
+
+    fn serialize_rr(name: &str, ptr: Option<u16>, r#type: u16, class: u16, ttl: u32, data: Vec<u8>) -> Vec<u8> {
+        // TODO: Need to consider compressed name both in name and in data.
+        // TODO: Bundle name into type (&str, Option<u16>)?
+        let mut buf = Vec::new();
+
+        let mut ser_name = serialize_name(name);
+        buf.append(&mut ser_name);
+        if let Some(offset) = ptr {
+            assert!(!name.ends_with('.'));
+            buf.put_u16(0xc000 | offset);
+        } else {
+            assert!(name.ends_with('.'));
+        }
+
+        buf.put_u16(r#type);
+        buf.put_u16(class);
+        buf.put_u32(ttl);
+        buf.put_u16(buf.len() as u16);
+        let mut data = data;
+        buf.append(&mut data);
+
+        buf
+    }
+
+    #[test]
+    fn serialize_rr_helper() {
+        let data1 = serialize_name("ns1.google.com.");
+        let serialized1 = serialize_rr("google.com.", None, 1 /* NS */, 0 /* IN */, 10, data1);
+        let expected = [
+            6, b'g', b'o', b'o', b'g', b'l', b'e', 3, b'c', b'o', b'm', 0, // name
+            0, 1,   // type
+            0, 0,   // class
+            0, 0, 0, 10,  // ttl
+            16,     // data length
+            3, b'n', b's', b'1', 6, b'g', b'o', b'o', b'g', b'l', b'e', 3, b'c', b'o', b'm', 0   // data
+        ];
+        assert_eq!(serialized1, expected);
+
+        let data2 = serialize_name("ns2.google.com");
+        let serialized2 = serialize_rr("api.google.com.", Some(0), 1 /* NS */, 0 /* IN */, 12, data2);
+        let expected = [
+            3, b'a', b'p', b'i', 6, b'g', b'o', b'o', b'g', b'l', b'e', 3, b'c', b'o', b'm', 0, // name
+            0, 1,   // type
+            0, 0,   // class
+            0, 0, 0, 12,  // ttl
+            6,     // data length
+            3, b'n', b's', b'2', 0xc0, 0   // data
+        ];
+        assert_eq!(serialized2, expected);
+
     }
 
     #[traced_test]
     #[test]
     fn parse_name() -> anyhow::Result<()> {
-        //tracing_subscriber::fmt::init();
-        debug!("Running test");
         let data = serialize_name("mail.google.com.");
         let mut parser = ResourceRecordNameParser::new(data.as_slice());
         let name = parser.parse()?;
@@ -177,6 +236,35 @@ mod test {
 
     #[test]
     fn parse_compressed_name() -> anyhow::Result<()> {
+        let mut data = Vec::new();
+
+        let ofs_name1 = 0_u16;
+        let mut rr1 = Vec::new();
+        let mut name1 = serialize_name("google.com.");
+        rr1.append(&mut name1);
+        for _ in 0..10 {
+            rr1.put_u8(1);
+        }
+
+
+        // First subdomain name encoded with pointer.
+        let mut sub1 = serialize_label("api"); // api.google.com
+        // Record the offset of the first subdomain as it is used as the base of the second subdomain.
+        let offset_sub1 = data.len() as u16;
+        data.append(&mut sub1);
+        // Store pointer from first subdomain to its base at offset 0.
+        let ptr1 = 0xc000_u16 | 0;
+        data.put_u16(ptr1);
+        // Second subdomain name encoded with pointer.
+        let mut sub2 = serialize_label("time"); // time.api.google.com
+        data.append(&mut sub2);
+        // Store pointer from second subdomain to its base (first subdomain).
+        let ptr2 = 0xc000_u16 | offset_sub1;
+        data.put_u16(ptr2);
+
+        let mut parser = ResourceRecordNameParser::new(data.as_slice());
+        let name1 = parser.parse()
+
         Ok(())
     }
 }
