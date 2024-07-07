@@ -1,6 +1,6 @@
 use bytes::{Buf, BufMut};
 use anyhow::Context;
-use tracing::{instrument, debug};
+use tracing::debug;
 
 pub struct ResourceRecord {
     name: String,
@@ -17,17 +17,6 @@ impl ResourceRecord {
         let name = parser.parse_name();
     }
 }
-
-macro_rules! buf_get_u8 {
-    ($buf:expr, $err_msg:expr) => {
-        if $buf.has_remaining() {
-            $buf.get_u8()
-        } else {
-            anyhow::bail!($err_msg)
-        }
-    };
-}
-
 struct ResourceRecordParser<'a> {
     data: &'a [u8],
     unparsed: &'a [u8],
@@ -172,9 +161,11 @@ mod test {
         assert_eq!(serialized.as_slice(), &expected);
     }
 
+    fn dump(data: &[u8]) {
+        // TODO: Dump hexdump of data to stdout
+    }
+
     fn serialize_rr(name: &str, ptr: Option<u16>, r#type: u16, class: u16, ttl: u32, data: Vec<u8>) -> Vec<u8> {
-        // TODO: Need to consider compressed name both in name and in data.
-        // TODO: Bundle name into type (&str, Option<u16>)?
         let mut buf = Vec::new();
 
         let mut ser_name = serialize_name(name);
@@ -196,74 +187,81 @@ mod test {
         buf
     }
 
+    fn build_rrs() -> (Vec<u8>, Vec<u8>) {
+        // Compressed name as data ("ns.google.com").
+        let mut data1 = Vec::new();
+        let mut data1_name = serialize_name("ns");
+        data1.append(&mut data1_name);
+        data1.put_u16(0xc000 | 0_u16); // 0 is the offset of "google.com." in the name of this RR
+        // Uncompressed name as name.
+        let rr1 = serialize_rr("google.com.", None, 1 /* NS */, 0 /* IN */, 10, data1);
+
+        // Compressed name as data ("api.ns.google.com").
+        let mut data2 = Vec::new();
+        let mut data2_name = serialize_name("api");
+        data2.append(&mut data2_name);
+        data2.put_u16(0xc000 | 22_u16); // 22 is the offset of "ns.google.com." in the data of the previous RR
+        // Compressed name as name ("api.google.com").
+        // 0 is the offset of "google.com." in the name of the previous RR
+        let rr2 = serialize_rr("api", Some(0), 1 /* NS */, 0 /* IN */, 12, data2);
+
+        (rr1, rr2)
+    }
+
     #[test]
     fn serialize_rr_helper() {
-        let data1 = serialize_name("ns1.google.com.");
-        let serialized1 = serialize_rr("google.com.", None, 1 /* NS */, 0 /* IN */, 10, data1);
+        let (rr1, rr2) = build_rrs();
+
         let expected = [
             6, b'g', b'o', b'o', b'g', b'l', b'e', 3, b'c', b'o', b'm', 0, // name
             0, 1,   // type
             0, 0,   // class
             0, 0, 0, 10,  // ttl
-            16,     // data length
-            3, b'n', b's', b'1', 6, b'g', b'o', b'o', b'g', b'l', b'e', 3, b'c', b'o', b'm', 0   // data
+            0, 5,     // data length
+            2, b'n', b's', 0xc0, 0  // data
         ];
-        assert_eq!(serialized1, expected);
+        assert_eq!(rr1, expected, "first RR");
 
-        let data2 = serialize_name("ns2.google.com");
-        let serialized2 = serialize_rr("api.google.com.", Some(0), 1 /* NS */, 0 /* IN */, 12, data2);
         let expected = [
-            3, b'a', b'p', b'i', 6, b'g', b'o', b'o', b'g', b'l', b'e', 3, b'c', b'o', b'm', 0, // name
+            3, b'a', b'p', b'i', 0xc0, 0, // name
             0, 1,   // type
             0, 0,   // class
             0, 0, 0, 12,  // ttl
-            6,     // data length
-            3, b'n', b's', b'2', 0xc0, 0   // data
+            0, 6,     // data length
+            3, b'a', b'p', b'i', 0xc0, 22   // data
         ];
-        assert_eq!(serialized2, expected);
+        assert_eq!(rr2, expected, "second RR");
 
     }
 
     #[traced_test]
     #[test]
     fn parse_name() -> anyhow::Result<()> {
-        let data = serialize_name("mail.google.com.");
-        let mut parser = ResourceRecordNameParser::new(data.as_slice());
-        let name = parser.parse()?;
-        assert_eq!(name, "mail.google.com.");
-        Ok(())
-    }
-
-    #[test]
-    fn parse_compressed_name() -> anyhow::Result<()> {
         let mut data = Vec::new();
+        let (mut rr1, mut rr2) = build_rrs();
+        data.append(&mut rr1);
+        data.append(&mut rr2);
 
-        let ofs_name1 = 0_u16;
-        let mut rr1 = Vec::new();
-        let mut name1 = serialize_name("google.com.");
-        rr1.append(&mut name1);
-        for _ in 0..10 {
-            rr1.put_u8(1);
-        }
-
-
-        // First subdomain name encoded with pointer.
-        let mut sub1 = serialize_label("api"); // api.google.com
-        // Record the offset of the first subdomain as it is used as the base of the second subdomain.
-        let offset_sub1 = data.len() as u16;
-        data.append(&mut sub1);
-        // Store pointer from first subdomain to its base at offset 0.
-        let ptr1 = 0xc000_u16 | 0;
-        data.put_u16(ptr1);
-        // Second subdomain name encoded with pointer.
-        let mut sub2 = serialize_label("time"); // time.api.google.com
-        data.append(&mut sub2);
-        // Store pointer from second subdomain to its base (first subdomain).
-        let ptr2 = 0xc000_u16 | offset_sub1;
-        data.put_u16(ptr2);
-
+        // Parse "google.com." from name of first RR.
         let mut parser = ResourceRecordNameParser::new(data.as_slice());
-        let name1 = parser.parse()
+        let name1 = parser.parse()?;
+        assert_eq!(name1, "google.com.");
+
+        // Parse "ns.google.com." from data of first RR.
+        let mut parser = ResourceRecordNameParser::new(&data[22..]);
+        let name1 = parser.parse()?;
+        assert_eq!(name1, "google.com.");
+
+        // Parse "api.google.com." from name of second RR.
+        let mut parser = ResourceRecordNameParser::new(&data[27..]);
+        let name1 = parser.parse()?;
+        assert_eq!(name1, "google.com.");
+
+        // Parse "api.ns.google.com" from data of second RR.
+        let mut parser = ResourceRecordNameParser::new(&data[43..]);
+        let name1 = parser.parse()?;
+        assert_eq!(name1, "google.com.");
+
 
         Ok(())
     }
