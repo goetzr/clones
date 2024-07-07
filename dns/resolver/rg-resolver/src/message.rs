@@ -1,5 +1,11 @@
 use crate::rr;
 
+pub fn hex_dump(data: &[u8]) -> String {
+    let mut out = String::new();
+    // TODO: Dump hexdump of data to String
+    out
+}
+
 pub struct Message {
     header: Header,
     question: Vec<Question>,

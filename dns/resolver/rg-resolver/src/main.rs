@@ -4,6 +4,7 @@ use tracing_subscriber;
 
 mod message;
 mod rr;
+mod name;
 
 fn main() {
     if let Err(e) = run() {
