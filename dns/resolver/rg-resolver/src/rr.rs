@@ -20,14 +20,39 @@ impl ResourceRecord {
         unparsed.advance(bytes_parsed);
 
         let r#type = Type::parse(&mut unparsed)?;
-        let class = Class::IN;
-        let ttl = 10;
-        let mut data = Vec::new();
-        for i in 1..11 {
-            data.push(i);
-        }
+        let class = Class::parse(&mut unparsed)?;
+        let ttl = Self::parse_ttl(&mut unparsed)?;
+        let data = Self::parse_data(&mut unparsed)?;
+        
+        let bytes_parsed = Self::calc_num_bytes_parsed(unparsed, rr);
         let rr = ResourceRecord { name, r#type, class, ttl, data: Some(data) };
-        Ok((rr, 10))
+        Ok((rr, bytes_parsed))
+    }
+
+    fn parse_ttl(unparsed: &mut &[u8]) -> anyhow::Result<u32> {
+        if unparsed.remaining() < 4 {
+            anyhow::bail!("incomplete TTL");
+        }
+        Ok(unparsed.get_u32())
+    }
+
+    fn parse_data(unparsed: &mut &[u8]) -> anyhow::Result<Vec<u8>> {
+        if unparsed.remaining() < 2 {
+            anyhow::bail!("incomplete data length");
+        }
+        let data_len = unparsed.get_u16() as usize;
+        let mut data = vec![0; data_len];
+        if unparsed.remaining() < data_len {
+            anyhow::bail!("incomplete data");
+        }
+        unparsed.copy_to_slice(&mut data[..]);
+        Ok(data)
+    }
+
+    fn calc_num_bytes_parsed(unparsed: &[u8], rr: &[u8]) -> usize {
+        unsafe {
+            unparsed.as_ptr().offset_from(rr.as_ptr()) as usize
+        }
     }
 }
 
@@ -53,23 +78,26 @@ pub enum Type {
 
 impl Type {
     fn parse(buf: &mut &[u8]) -> anyhow::Result<Self> {
+        if buf.remaining() < 2 {
+            anyhow::bail!("incomplete type");
+        }
         match buf.get_u16() {
-            0 => Ok(Type::A),
-            1 => Ok(Type::NS),
-            2 => Ok(Type::MD),
-            3 => Ok(Type::MF),
-            4 => Ok(Type::CNAME),
-            5 => Ok(Type::SOA),
-            6 => Ok(Type::MB),
-            7 => Ok(Type::MG),
-            8 => Ok(Type::MR),
-            9 => Ok(Type::NULL),
-            10 => Ok(Type::WKS),
-            11 => Ok(Type::PTR),
-            12 => Ok(Type::HINFO),
-            13 => Ok(Type::MINFO),
-            14 => Ok(Type::MX),
-            15 => Ok(Type::TXT),
+            1 => Ok(Type::A),
+            2 => Ok(Type::NS),
+            3 => Ok(Type::MD),
+            4 => Ok(Type::MF),
+            5 => Ok(Type::CNAME),
+            6 => Ok(Type::SOA),
+            7 => Ok(Type::MB),
+            8 => Ok(Type::MG),
+            9 => Ok(Type::MR),
+            10 => Ok(Type::NULL),
+            11 => Ok(Type::WKS),
+            12 => Ok(Type::PTR),
+            13 => Ok(Type::HINFO),
+            14 => Ok(Type::MINFO),
+            15 => Ok(Type::MX),
+            16 => Ok(Type::TXT),
             n => Err(anyhow::anyhow!("invalid RR type '{n}'")),
         }
     }
@@ -83,6 +111,21 @@ pub enum Class {
     HS,
 }
 
+impl Class {
+    fn parse(buf: &mut &[u8]) -> anyhow::Result<Self> {
+        if buf.remaining() < 2 {
+            anyhow::bail!("incomplete class");
+        }
+        match buf.get_u16() {
+            1 => Ok(Class::IN),
+            2 => Ok(Class::CS),
+            3 => Ok(Class::CH),
+            4 => Ok(Class::HS),
+            n => Err(anyhow::anyhow!("invalid RR class '{n}'")),
+        }
+    }
+}
+
 #[cfg(test)]
 mod test {
     use super::*;
@@ -91,17 +134,18 @@ mod test {
     use crate::name;
 
     #[test]
-    fn parse() -> anyhow::Result<()> {
+    fn parse_rr() -> anyhow::Result<()> {
         let mut rr = Vec::new();
         let mut name = name::serialize("google.com.", None).expect("serialize name");
         rr.append(&mut name);
-        rr.put_u16(1);  // type = NS
-        rr.put_u16(0);  // class = IN
+        rr.put_u16(2);  // type = NS
+        rr.put_u16(1);  // class = IN
         rr.put_u32(10); // ttl = 10
         let mut data = Vec::new();
         for i in 1..11 {
             data.push(i);
         }
+        let data_copy = data.clone();
         rr.put_u16(data.len() as u16);
         rr.append(&mut data);
 
@@ -111,12 +155,23 @@ mod test {
         assert_eq!(parsed_rr.class, Class::IN);
         assert_eq!(parsed_rr.ttl, 10);
         let data_matches = match parsed_rr.data {
-            Some(parsed_data) => parsed_data == data,
-            None => false
+            Some(parsed_data) => parsed_data == data_copy,
+            None => false,
         };
         assert!(data_matches);
         assert_eq!(bytes_parsed, rr.len());
 
+        Ok(())
+    }
+
+    #[test]
+    fn parse_type() -> anyhow::Result<()> {
+        
+        Ok(())
+    }
+
+    #[test]
+    fn parse_class() -> anyhow::Result<()> {
         Ok(())
     }
 }

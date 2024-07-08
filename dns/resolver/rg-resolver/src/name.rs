@@ -69,9 +69,13 @@ impl<'a> Parser<'a> {
                 } else {
                     anyhow::bail!("incomplete pointer")
                 };
-                unparsed = &self.msg[offset..];
-                num_bytes_parsed = Some(self.calc_num_bytes_parsed(unparsed));
+                // Guard against nested compressed names.
+                // Only the first name sets the number of bytes parsed. Subsequent names have already been parsed.
+                if num_bytes_parsed.is_none() {
+                    num_bytes_parsed = Some(self.calc_num_bytes_parsed(unparsed));
+                }
                 // Continue parsing the name starting at the pointed to location.
+                unparsed = &self.msg[offset..];
                 continue;
             }
             // Advance past the length byte we only peeked at.
