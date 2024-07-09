@@ -1,6 +1,4 @@
-use anyhow::Context;
-use bytes::{Buf, BufMut};
-use tracing::debug;
+use bytes::Buf;
 use crate::name;
 
 pub struct ResourceRecord {
@@ -134,44 +132,134 @@ mod test {
     use crate::name;
 
     #[test]
-    fn parse_rr() -> anyhow::Result<()> {
-        let mut rr = Vec::new();
-        let mut name = name::serialize("google.com.", None).expect("serialize name");
-        rr.append(&mut name);
-        rr.put_u16(2);  // type = NS
-        rr.put_u16(1);  // class = IN
-        rr.put_u32(10); // ttl = 10
-        let mut data = Vec::new();
-        for i in 1..11 {
-            data.push(i);
-        }
-        let data_copy = data.clone();
-        rr.put_u16(data.len() as u16);
-        rr.append(&mut data);
-
-        let (parsed_rr, bytes_parsed) = ResourceRecord::parse(&rr[..], &rr[..])?;
-        assert_eq!(parsed_rr.name, "google.com.");
-        assert_eq!(parsed_rr.r#type, Type::NS);
-        assert_eq!(parsed_rr.class, Class::IN);
-        assert_eq!(parsed_rr.ttl, 10);
-        let data_matches = match parsed_rr.data {
-            Some(parsed_data) => parsed_data == data_copy,
-            None => false,
-        };
-        assert!(data_matches);
-        assert_eq!(bytes_parsed, rr.len());
-
-        Ok(())
-    }
-
-    #[test]
     fn parse_type() -> anyhow::Result<()> {
+        macro_rules! test_type {
+            ($data:tt, $type:tt) => {
+                let mut data: &[u8] = &$data;
+                assert!(matches!(Type::parse(&mut data), Ok(Type::$type)));
+                assert!(data.is_empty());
+            };
+        }
+
+        test_type!([0, 1], A);
+        test_type!([0, 2], NS);
+        test_type!([0, 3], MD);
+        test_type!([0, 4], MF);
+        test_type!([0, 5], CNAME);
+        test_type!([0, 6], SOA);
+        test_type!([0, 7], MB);
+        test_type!([0, 8], MG);
+        test_type!([0, 9], MR);
+        test_type!([0, 10], NULL);
+        test_type!([0, 11], WKS);
+        test_type!([0, 12], PTR);
+        test_type!([0, 13], HINFO);
+        test_type!([0, 14], MINFO);
+        test_type!([0, 15], MX);
+        test_type!([0, 16], TXT);
+
+        let mut data: &[u8] = &[0, 0];
+        assert!(Type::parse(&mut data).is_err());
+
+        let mut data: &[u8] = &[1];
+        assert!(Type::parse(&mut data).is_err());
         
         Ok(())
     }
 
     #[test]
     fn parse_class() -> anyhow::Result<()> {
+        macro_rules! test_class {
+            ($data:tt, $class:tt) => {
+                let mut data: &[u8] = &$data;
+                assert!(matches!(Class::parse(&mut data), Ok(Class::$class)));
+                assert!(data.is_empty());
+            };
+        }
+
+        test_class!([0, 1], IN);
+        test_class!([0, 2], CS);
+        test_class!([0, 3], CH);
+        test_class!([0, 4], HS);
+
+        let mut data: &[u8] = &[0, 0];
+        assert!(Class::parse(&mut data).is_err());
+
+        let mut data: &[u8] = &[1];
+        assert!(Class::parse(&mut data).is_err());
+
+        Ok(())
+    }
+
+    #[test]
+    fn parse_ttl() -> anyhow::Result<()> {
+        let mut data: &[u8] = &[0, 0, 0, 12];
+        let ttl = ResourceRecord::parse_ttl(&mut data)?;
+        assert_eq!(ttl, 12);
+
+        let mut data: &[u8] = &[0, 12];
+        assert!(ResourceRecord::parse_ttl(&mut data).is_err());
+
+        Ok(())
+    }
+
+    #[test]
+    fn parse_data() -> anyhow::Result<()> {
+        let mut buf = Vec::new();
+        let data = vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+        buf.put_u16(data.len() as u16);
+        let mut data_copy = data.clone();
+        buf.append(&mut data_copy);
+        let mut buf = &buf[..];
+
+        let parsed_data = ResourceRecord::parse_data(&mut buf)?;
+        assert_eq!(parsed_data, data);
+
+        let buf = vec![10];
+        let mut buf = &buf[..];
+        let parsed_data = ResourceRecord::parse_data(&mut buf);
+        assert!(parsed_data.is_err());
+
+        let mut buf = Vec::new();
+        buf.put_u16(data.len() as u16);
+        let mut buf = &buf[..];
+        let parsed_data = ResourceRecord::parse_data(&mut buf);
+        assert!(parsed_data.is_err());
+
+
+        Ok(())
+    }
+
+    #[test]
+    fn parse_rr() -> anyhow::Result<()> {
+        let mut msg = Vec::new();
+        let name = "google.com.";
+        let mut name_ser = name::serialize(name, None)?;
+        msg.append(&mut name_ser);
+        let r#type = Type::NS;
+        msg.put_u16(2); // NS
+        let class = Class::IN;
+        msg.put_u16(1); // IN
+        let ttl = 12;
+        msg.put_u32(ttl);
+        let data = vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+        msg.put_u16(data.len() as u16);
+        let mut data_copy = data.clone();
+        msg.append(&mut data_copy);
+
+        let (rr, bytes_parsed) = ResourceRecord::parse(&msg[..], &msg[..])?;
+        assert_eq!(rr.name, name);
+        assert_eq!(rr.r#type, r#type);
+        assert_eq!(rr.class, class);
+        assert_eq!(rr.ttl, ttl);
+        assert!(
+            match rr.data {
+                Some(d) if d == data => true,
+                _ => false,
+            }
+        );
+        assert_eq!(bytes_parsed, 12 + 2 + 2 + 4 + 2 + 10);
+
         Ok(())
     }
 }

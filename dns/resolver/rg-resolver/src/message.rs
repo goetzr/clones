@@ -1,11 +1,5 @@
 use crate::rr;
 
-pub fn hex_dump(data: &[u8]) -> String {
-    let mut out = String::new();
-    // TODO: Dump hexdump of data to String
-    out
-}
-
 pub struct Message {
     header: Header,
     question: Vec<Question>,
@@ -22,6 +16,31 @@ pub struct Header {
     is_recursion_desired: bool,
     is_recursion_available: bool,
     response_code: ResponseCode,
+}
+
+impl Header {
+    fn parse(hdr: &mut &[u8]) -> anyhow::Result<Header> {
+        let id = 0;
+        let r#type = MessageType::Response;
+        let opcode = Opcode::StandardQuery;
+        let is_authoritative_answer = true;
+        let is_truncated = false;
+        let is_recursion_desired = false;
+        let is_recursion_available = false;
+        let response_code = ResponseCode::NoError;
+        
+        let header = Header {
+            id,
+            r#type,
+            opcode,
+            is_authoritative_answer,
+            is_truncated,
+            is_recursion_desired,
+            is_recursion_available,
+            response_code,
+        };
+        Ok(header)
+    }
 }
 
 enum MessageType {
@@ -65,14 +84,8 @@ pub enum QuestionClass {
     Any,
 }
 
-pub struct Answer {
+pub struct Answer {}
 
-}
+pub struct Authority {}
 
-pub struct Authority {
-
-}
-
-pub struct Additional {
-
-}
+pub struct Additional {}
