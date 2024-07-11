@@ -1,4 +1,4 @@
-use crate::rr;
+use crate::{name, rr};
 use bytes::Buf;
 
 pub struct Message {
@@ -7,6 +7,18 @@ pub struct Message {
     answer: Option<Vec<rr::ResourceRecord>>,
     authority: Option<Vec<rr::ResourceRecord>>,
     additional: Option<Vec<rr::ResourceRecord>>,
+}
+
+impl Message {
+    pub fn parse(msg: &[u8]) -> anyhow::Result<(Message, usize)> {
+        let mut unparsed = msg;
+        let header = Header::parse(&mut unparsed)?;
+        // TODO: Need to look at header question_count and parse that many.
+        // TODO: Then write tests for all this.
+        let question = Question::parse(msg, &mut unparsed)?;
+        unimplemented!()
+        //Ok((message, bytes_parsed));
+    }
 }
 pub struct Header {
     id: u16,
@@ -98,7 +110,7 @@ impl Opcode {
         match self {
             StandardQuery => 0,
             InverseQuery => 1,
-            ServerStatusRequest => 2
+            ServerStatusRequest => 2,
         }
     }
 }
@@ -145,6 +157,20 @@ pub struct Question {
     class: QuestionClass,
 }
 
+impl Question {
+    fn parse(msg: &[u8], question: &mut &[u8]) -> anyhow::Result<Self> {
+        let mut name_parser = name::Parser::new(msg, question);
+        let (name, bytes_parsed) = name_parser.parse()?;
+        question.advance(bytes_parsed);
+
+        let r#type = QuestionType::parse(question)?;
+        let class = QuestionClass::parse(question)?;
+
+        let question = Question { name, r#type, class };
+        Ok(question)
+    }
+}
+
 pub enum QuestionType {
     RrType(rr::Type),
     Afxr,
@@ -153,9 +179,72 @@ pub enum QuestionType {
     All,
 }
 
+impl QuestionType {
+    fn parse(buf: &mut &[u8]) -> anyhow::Result<Self> {
+        use QuestionType::*;
+        use crate::rr;
+
+        if buf.remaining() < 2 {
+            anyhow::bail!("incomplete question type");
+        }
+
+        // Attempt to parse a base resource record type first by peeking at the value.
+        let mut peek = *buf;
+        let question_type = match rr::Type::parse(&mut peek) {
+            Ok(rr_type) => {
+                // Base resource record type. Advance past the peeked at value.
+                buf.advance(2);
+                RrType(rr_type)
+            }
+            Err(_) => {
+                // Not a base resource record type. Check the remaining possibilities.
+                match buf.get_u16() {
+                    252 => Afxr,
+                    253 => Mailb,
+                    254 => Maila,
+                    255 => All,
+                    n => anyhow::bail!("undefined question type {n}"),
+                }
+            }
+        };
+        
+        Ok(question_type)
+    }
+}
+
 pub enum QuestionClass {
     RrClass(rr::Class),
     Any,
+}
+
+impl QuestionClass {
+    fn parse(buf: &mut &[u8]) -> anyhow::Result<Self> {
+        use QuestionClass::*;
+        use crate::rr;
+
+        if buf.remaining() < 2 {
+            anyhow::bail!("incomplete question class");
+        }
+
+        // Attempt to parse a base resource record class first by peeking at the value.
+        let mut peek = *buf;
+        let question_class = match rr::Class::parse(&mut peek) {
+            Ok(rr_class) => {
+                // Base resource record class. Advance past the peeked at value.
+                buf.advance(2);
+                RrClass(rr_class)
+            }
+            Err(_) => {
+                // Not a base resource record class. Check the remaining possibilities.
+                match buf.get_u16() {
+                    255 => Any,
+                    n => anyhow::bail!("undefined question class {n}"),
+                }
+            }
+        };
+        
+        Ok(question_class)
+    }
 }
 
 pub struct Answer {}
@@ -183,14 +272,13 @@ mod test {
         let is_recursion_desired = true;
         let is_recursion_available = false;
         let response_code = ResponseCode::NameError;
-        let bitfields: u16 =
-            (is_response as u16) << 15 |
-            (opcode.serialize() as u16) << 11 |
-            (is_authoritative_answer as u16) << 10 |
-            (is_truncated as u16) << 9 |
-            (is_recursion_desired as u16) << 8 |
-            (is_recursion_available as u16) << 7 |
-            response_code.serialize() as u16;
+        let bitfields: u16 = (is_response as u16) << 15
+            | (opcode.serialize() as u16) << 11
+            | (is_authoritative_answer as u16) << 10
+            | (is_truncated as u16) << 9
+            | (is_recursion_desired as u16) << 8
+            | (is_recursion_available as u16) << 7
+            | response_code.serialize() as u16;
         buf.put_u16(bitfields);
 
         let question_count = 2;
@@ -217,9 +305,20 @@ mod test {
         assert_eq!(header.answer_count, answer_count as usize);
         assert_eq!(header.nameserver_count, nameserver_count as usize);
         assert_eq!(header.additional_count, additional_count as usize);
+        assert_eq!(unsafe { hdr.as_ptr().offset_from(buf.as_ptr()) }, 12);
 
-        // TODO: Assert that hdr - buf is the right number of bytes.
-
+        let mut hdr = &buf[..1];
+        assert!(Header::parse(&mut hdr).is_err());
+        let mut hdr = &buf[..3];
+        assert!(Header::parse(&mut hdr).is_err());
+        let mut hdr = &buf[..5];
+        assert!(Header::parse(&mut hdr).is_err());
+        let mut hdr = &buf[..7];
+        assert!(Header::parse(&mut hdr).is_err());
+        let mut hdr = &buf[..9];
+        assert!(Header::parse(&mut hdr).is_err());
+        let mut hdr = &buf[..11];
+        assert!(Header::parse(&mut hdr).is_err());
 
         Ok(())
     }

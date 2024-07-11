@@ -10,7 +10,7 @@ pub struct ResourceRecord {
 }
 
 impl ResourceRecord {
-    pub fn parse<'a>(msg: &'a [u8], rr: &'a [u8]) -> anyhow::Result<(ResourceRecord, usize)> {
+    pub fn parse(msg: &[u8], rr: &[u8]) -> anyhow::Result<(ResourceRecord, usize)> {
         let mut unparsed = &rr[..];
 
         let mut name_parser = name::Parser::new(msg, unparsed);
@@ -75,7 +75,7 @@ pub enum Type {
 }
 
 impl Type {
-    fn parse(buf: &mut &[u8]) -> anyhow::Result<Self> {
+    pub fn parse(buf: &mut &[u8]) -> anyhow::Result<Self> {
         if buf.remaining() < 2 {
             anyhow::bail!("incomplete type");
         }
@@ -110,7 +110,7 @@ pub enum Class {
 }
 
 impl Class {
-    fn parse(buf: &mut &[u8]) -> anyhow::Result<Self> {
+    pub fn parse(buf: &mut &[u8]) -> anyhow::Result<Self> {
         if buf.remaining() < 2 {
             anyhow::bail!("incomplete class");
         }
