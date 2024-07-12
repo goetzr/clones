@@ -26,92 +26,78 @@ pub fn serialize(name: &str, ptr: Option<u16>) -> anyhow::Result<Vec<u8>> {
     Ok(buf)
 }
 
-pub struct Parser<'a> {
-    msg: &'a [u8],
-    name: &'a [u8],
+/// msg must point to the very first byte of the message,
+/// not the current location in the message.
+pub fn parse<'a>(msg: &'a [u8], unparsed: &mut &'a [u8]) -> anyhow::Result<String> {
+    let mut name = String::new();
+    let mut buf = *unparsed;
+    let mut input_slice_advanced = false;
+    loop {
+        let len = if buf.has_remaining() {
+            let mut peek: &[u8] = buf;
+            peek.get_u8() as usize
+        } else {
+            anyhow::bail!("incomplete name")
+        };
+        debug!(len, "Peeked length byte");
+        if len == 0 {
+            // Advance past the length byte we only peeked at.
+            buf.advance(1);
+            // Advance the input slice when the end of the name is reached
+            // only if no pointers were encountered.
+            if !input_slice_advanced {
+                *unparsed = buf;
+            }
+            if name.len() <= 255 {
+                return Ok(name);
+            } else {
+                anyhow::bail!("name exceeds maximum length of 255");
+            }
+        }
+        if is_compressed(len)? {
+            let offset = if buf.remaining() >= 2 {
+                (buf.get_u16() & !0xc000) as usize
+            } else {
+                anyhow::bail!("incomplete pointer")
+            };
+            // Advance the input slice when the first pointer is encountered.
+            // Pointed-to names are located earlier in the message so
+            // the input slice should not be advanced after this.
+            if !input_slice_advanced {
+                *unparsed = buf;
+                input_slice_advanced = true;
+            }
+            // Continue parsing the name starting at the pointed to location earlier in the message.
+            buf = &msg[offset..];
+            continue;
+        }
+        // Advance past the length byte we only peeked at.
+        buf.advance(1);
+        let label = if buf.remaining() >= len {
+            let label = &buf[..len];
+            buf.advance(len);
+            let label =
+                String::from_utf8(label.to_vec()).with_context(|| "label not valid UTF-8")?;
+            if label.is_ascii() {
+                label
+            } else {
+                anyhow::bail!("label not ASCII");
+            }
+        } else {
+            anyhow::bail!("incomplete label")
+        };
+        name.push_str(&label);
+        name.push('.');
+    }
 }
 
-impl<'a> Parser<'a> {
-    pub fn new(msg: &'a [u8], name: &'a [u8]) -> Self {
-        Self {
-            msg,
-            name,
-        }
-    }
-
-    pub fn parse(&mut self) -> anyhow::Result<(String, usize)> {
-        let mut name = String::new();
-        let mut unparsed = self.name;
-        let mut num_bytes_parsed = None;
-        loop {
-            let len = if unparsed.has_remaining() {
-                let mut peek = unparsed;
-                peek.get_u8() as usize
-            } else {
-                anyhow::bail!("incomplete name")
-            };
-            debug!(len, "Peeked length byte");
-            if len == 0 {
-                // Advance past the length byte we only peeked at.
-                let _ = unparsed.get_u8();
-                if name.len() <= 255 {
-                    if num_bytes_parsed.is_none() {
-                        num_bytes_parsed = Some(self.calc_num_bytes_parsed(unparsed));
-                    }
-                    return Ok((name, num_bytes_parsed.unwrap()));
-                } else {
-                    anyhow::bail!("name exceeds maximum length of 255");
-                }
-            }
-            if Self::is_compressed(len)? {
-                let offset = if unparsed.remaining() >= 2 {
-                    (unparsed.get_u16() & !0xc000) as usize
-                } else {
-                    anyhow::bail!("incomplete pointer")
-                };
-                // Guard against nested compressed names.
-                // Only the first name sets the number of bytes parsed. Subsequent names have already been parsed.
-                if num_bytes_parsed.is_none() {
-                    num_bytes_parsed = Some(self.calc_num_bytes_parsed(unparsed));
-                }
-                // Continue parsing the name starting at the pointed to location.
-                unparsed = &self.msg[offset..];
-                continue;
-            }
-            // Advance past the length byte we only peeked at.
-            let _ = unparsed.get_u8();
-            let label = if unparsed.remaining() >= len {
-                let label = &unparsed[..len];
-                unparsed.advance(len);
-                let label =
-                    String::from_utf8(label.to_vec()).with_context(|| "label not valid UTF-8")?;
-                if label.is_ascii() {
-                    label
-                } else {
-                    anyhow::bail!("label not ASCII");
-                }
-            } else {
-                anyhow::bail!("incomplete label")
-            };
-            name.push_str(&label);
-            name.push('.');
-        }
-    }
-
-    fn is_compressed(len: usize) -> anyhow::Result<bool> {
-        match len & 0xc0 {
-            0xc0 => Ok(true),
-            0x00 => Ok(false),
-            _ => Err(anyhow::anyhow!(
-                "use of reserved value in compression indication bits"
-            )),
-        }
-    }
-
-    fn calc_num_bytes_parsed(&self, unparsed: &[u8]) -> usize {
-        unsafe {
-            unparsed.as_ptr().offset_from(self.name.as_ptr()) as usize
-        }
+fn is_compressed(len: usize) -> anyhow::Result<bool> {
+    match len & 0xc0 {
+        0xc0 => Ok(true),
+        0x00 => Ok(false),
+        _ => Err(anyhow::anyhow!(
+            "use of reserved value in compression indication bits"
+        )),
     }
 }
 
@@ -154,10 +140,14 @@ mod test {
         let name_ser_len = name_ser.len();
         msg.append(&mut name_ser);
 
-        let mut parser = Parser::new(&msg[..], &msg[name_offset..]);
-        let (parsed_name, bytes_parsed) = parser.parse()?;
+        let mut unparsed = &msg[name_offset..];
+        let parse_start = unparsed;
+        let parsed_name = parse(&msg[..], &mut unparsed)?;
         assert_eq!(parsed_name, name);
-        assert_eq!(bytes_parsed, name_ser_len);
+        assert_eq!(
+            unsafe { unparsed.as_ptr().offset_from(parse_start.as_ptr()) as usize },
+            name_ser_len
+        );
 
         Ok(())
     }
@@ -197,10 +187,14 @@ mod test {
         msg.append(&mut name3_ser);
 
         let name = [name3, name2, name1].join(".");
-        let mut parser = Parser::new(&msg[..], &msg[name3_offset..]);
-        let (parsed_name, bytes_parsed) = parser.parse()?;
+        let mut unparsed = &msg[name3_offset..];
+        let parse_start = unparsed;
+        let parsed_name = parse(&msg[..], &mut unparsed)?;
         assert_eq!(parsed_name, name);
-        assert_eq!(bytes_parsed, name3_ser_len);
+        assert_eq!(
+            unsafe { unparsed.as_ptr().offset_from(parse_start.as_ptr()) as usize },
+            name3_ser_len
+        );
 
         Ok(())
     }

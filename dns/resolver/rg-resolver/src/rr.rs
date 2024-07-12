@@ -1,5 +1,5 @@
-use bytes::Buf;
 use crate::name;
+use bytes::Buf;
 
 pub struct ResourceRecord {
     pub name: String,
@@ -10,21 +10,23 @@ pub struct ResourceRecord {
 }
 
 impl ResourceRecord {
-    pub fn parse(msg: &[u8], rr: &[u8]) -> anyhow::Result<(ResourceRecord, usize)> {
-        let mut unparsed = &rr[..];
+    /// msg must point to the very first byte of the message,
+    /// not the current location in the message.
+    pub fn parse<'a>(msg: &'a [u8], unparsed: &mut &'a [u8]) -> anyhow::Result<ResourceRecord> {
+        let name = name::parse(msg, unparsed)?;
+        let r#type = Type::parse(unparsed)?;
+        let class = Class::parse(unparsed)?;
+        let ttl = Self::parse_ttl(unparsed)?;
+        let data = Self::parse_data(unparsed)?;
 
-        let mut name_parser = name::Parser::new(msg, unparsed);
-        let (name, bytes_parsed) = name_parser.parse()?;
-        unparsed.advance(bytes_parsed);
-
-        let r#type = Type::parse(&mut unparsed)?;
-        let class = Class::parse(&mut unparsed)?;
-        let ttl = Self::parse_ttl(&mut unparsed)?;
-        let data = Self::parse_data(&mut unparsed)?;
-        
-        let bytes_parsed = Self::calc_num_bytes_parsed(unparsed, rr);
-        let rr = ResourceRecord { name, r#type, class, ttl, data: Some(data) };
-        Ok((rr, bytes_parsed))
+        let rr = ResourceRecord {
+            name,
+            r#type,
+            class,
+            ttl,
+            data: Some(data),
+        };
+        Ok(rr)
     }
 
     fn parse_ttl(unparsed: &mut &[u8]) -> anyhow::Result<u32> {
@@ -45,12 +47,6 @@ impl ResourceRecord {
         }
         unparsed.copy_to_slice(&mut data[..]);
         Ok(data)
-    }
-
-    fn calc_num_bytes_parsed(unparsed: &[u8], rr: &[u8]) -> usize {
-        unsafe {
-            unparsed.as_ptr().offset_from(rr.as_ptr()) as usize
-        }
     }
 }
 
@@ -127,9 +123,8 @@ impl Class {
 #[cfg(test)]
 mod test {
     use super::*;
-    use bytes::BufMut;
-    use tracing_test::traced_test;
     use crate::name;
+    use bytes::BufMut;
 
     #[test]
     fn parse_type() -> anyhow::Result<()> {
@@ -163,7 +158,7 @@ mod test {
 
         let mut data: &[u8] = &[1];
         assert!(Type::parse(&mut data).is_err());
-        
+
         Ok(())
     }
 
@@ -226,7 +221,6 @@ mod test {
         let parsed_data = ResourceRecord::parse_data(&mut buf);
         assert!(parsed_data.is_err());
 
-
         Ok(())
     }
 
@@ -247,18 +241,21 @@ mod test {
         let mut data_copy = data.clone();
         msg.append(&mut data_copy);
 
-        let (rr, bytes_parsed) = ResourceRecord::parse(&msg[..], &msg[..])?;
+        let mut unparsed = &msg[..];
+        let parse_start = unparsed;
+        let rr = ResourceRecord::parse(&msg[..], &mut unparsed)?;
         assert_eq!(rr.name, name);
         assert_eq!(rr.r#type, r#type);
         assert_eq!(rr.class, class);
         assert_eq!(rr.ttl, ttl);
-        assert!(
-            match rr.data {
-                Some(d) if d == data => true,
-                _ => false,
-            }
+        assert!(match rr.data {
+            Some(d) if d == data => true,
+            _ => false,
+        });
+        assert_eq!(
+            unsafe { unparsed.as_ptr().offset_from(parse_start.as_ptr()) },
+            12 + 2 + 2 + 4 + 2 + 10
         );
-        assert_eq!(bytes_parsed, 12 + 2 + 2 + 4 + 2 + 10);
 
         Ok(())
     }

@@ -3,19 +3,28 @@ use bytes::Buf;
 
 pub struct Message {
     header: Header,
-    question: Vec<Question>,
-    answer: Option<Vec<rr::ResourceRecord>>,
-    authority: Option<Vec<rr::ResourceRecord>>,
-    additional: Option<Vec<rr::ResourceRecord>>,
+    questions: Vec<Question>,
+    answers: Vec<rr::ResourceRecord>,
+    authorities: Vec<rr::ResourceRecord>,
+    additionals: Vec<rr::ResourceRecord>,
 }
 
 impl Message {
-    pub fn parse(msg: &[u8]) -> anyhow::Result<(Message, usize)> {
-        let mut unparsed = msg;
-        let header = Header::parse(&mut unparsed)?;
-        // TODO: Need to look at header question_count and parse that many.
-        // TODO: Then write tests for all this.
-        let question = Question::parse(msg, &mut unparsed)?;
+    pub fn parse(msg: &mut &[u8]) -> anyhow::Result<Message> {
+        // TODO: Anything that parses a name needs a pointer to the beginning of the message!
+        let header = Header::parse(msg)?;
+
+        let mut questions = Vec::with_capacity(header.question_count);
+        for _ in 0..header.question_count {
+            let mut unparsed = *msg;
+            let question = Question::parse(msg)?;
+            questions.push(question);
+        }
+
+        // let mut answers = Vec::with_capacity(header.answer_count);
+        // for _ in 0..header.answer_count {
+        //     let answer = rr::ResourceRecord::parse(msg, &mut unparsed)?;
+        // }
         unimplemented!()
         //Ok((message, bytes_parsed));
     }
@@ -36,19 +45,19 @@ pub struct Header {
 }
 
 impl Header {
-    fn parse(hdr: &mut &[u8]) -> anyhow::Result<Header> {
+    fn parse(msg: &mut &[u8]) -> anyhow::Result<Header> {
         macro_rules! check_remaining {
             ($size:expr, $field:expr) => {
-                if hdr.remaining() < $size {
+                if msg.remaining() < $size {
                     anyhow::bail!("incomplete header field: {}", $field);
                 }
             };
         }
         check_remaining!(2, "id");
-        let id = hdr.get_u16();
+        let id = msg.get_u16();
 
         check_remaining!(2, "bitfields");
-        let bitfields = hdr.get_u16();
+        let bitfields = msg.get_u16();
         let is_response = (bitfields >> 15) & 1 == 1;
         let opcode = Opcode::parse(bitfields)?;
         let is_authoritative_answer = (bitfields >> 10) & 1 == 1;
@@ -62,13 +71,13 @@ impl Header {
         let response_code = ResponseCode::parse(bitfields)?;
 
         check_remaining!(2, "question count");
-        let question_count = hdr.get_u16() as usize;
+        let question_count = msg.get_u16() as usize;
         check_remaining!(2, "answer count");
-        let answer_count = hdr.get_u16() as usize;
+        let answer_count = msg.get_u16() as usize;
         check_remaining!(2, "nameserver count");
-        let nameserver_count = hdr.get_u16() as usize;
+        let nameserver_count = msg.get_u16() as usize;
         check_remaining!(2, "additional count");
-        let additional_count = hdr.get_u16() as usize;
+        let additional_count = msg.get_u16() as usize;
 
         let header = Header {
             id,
@@ -158,13 +167,12 @@ pub struct Question {
 }
 
 impl Question {
-    fn parse(msg: &[u8], question: &mut &[u8]) -> anyhow::Result<Self> {
-        let mut name_parser = name::Parser::new(msg, question);
-        let (name, bytes_parsed) = name_parser.parse()?;
-        question.advance(bytes_parsed);
-
-        let r#type = QuestionType::parse(question)?;
-        let class = QuestionClass::parse(question)?;
+    /// msg must point to the very first byte of the message,
+    /// not the current location in the message.
+    fn parse<'a>(msg: &'a [u8], unparsed: &mut &'a [u8]) -> anyhow::Result<Self> {
+        let name = name::parse(msg, unparsed)?;
+        let r#type = QuestionType::parse(unparsed)?;
+        let class = QuestionClass::parse(unparsed)?;
 
         let question = Question { name, r#type, class };
         Ok(question)
