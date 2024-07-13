@@ -10,8 +10,7 @@ pub struct ResourceRecord {
 }
 
 impl ResourceRecord {
-    /// msg must point to the very first byte of the message,
-    /// not the current location in the message.
+    /// msg must point to the very first byte of the message.
     pub fn parse<'a>(msg: &'a [u8], unparsed: &mut &'a [u8]) -> anyhow::Result<ResourceRecord> {
         let name = name::parse(msg, unparsed)?;
         let r#type = Type::parse(unparsed)?;
@@ -71,11 +70,11 @@ pub enum Type {
 }
 
 impl Type {
-    pub fn parse(buf: &mut &[u8]) -> anyhow::Result<Self> {
-        if buf.remaining() < 2 {
+    pub fn parse(unparsed: &mut &[u8]) -> anyhow::Result<Self> {
+        if unparsed.remaining() < 2 {
             anyhow::bail!("incomplete type");
         }
-        match buf.get_u16() {
+        match unparsed.get_u16() {
             1 => Ok(Type::A),
             2 => Ok(Type::NS),
             3 => Ok(Type::MD),
@@ -106,11 +105,11 @@ pub enum Class {
 }
 
 impl Class {
-    pub fn parse(buf: &mut &[u8]) -> anyhow::Result<Self> {
-        if buf.remaining() < 2 {
+    pub fn parse(unparsed: &mut &[u8]) -> anyhow::Result<Self> {
+        if unparsed.remaining() < 2 {
             anyhow::bail!("incomplete class");
         }
-        match buf.get_u16() {
+        match unparsed.get_u16() {
             1 => Ok(Class::IN),
             2 => Ok(Class::CS),
             3 => Ok(Class::CH),
@@ -156,6 +155,9 @@ mod test {
         let mut data: &[u8] = &[0, 0];
         assert!(Type::parse(&mut data).is_err());
 
+        let mut data: &[u8] = &[0, 17];
+        assert!(Type::parse(&mut data).is_err());
+
         let mut data: &[u8] = &[1];
         assert!(Type::parse(&mut data).is_err());
 
@@ -178,6 +180,9 @@ mod test {
         test_class!([0, 4], HS);
 
         let mut data: &[u8] = &[0, 0];
+        assert!(Class::parse(&mut data).is_err());
+
+        let mut data: &[u8] = &[0, 5];
         assert!(Class::parse(&mut data).is_err());
 
         let mut data: &[u8] = &[1];

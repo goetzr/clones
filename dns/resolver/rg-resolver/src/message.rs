@@ -11,22 +11,42 @@ pub struct Message {
 
 impl Message {
     pub fn parse(msg: &mut &[u8]) -> anyhow::Result<Message> {
-        // TODO: Anything that parses a name needs a pointer to the beginning of the message!
-        let header = Header::parse(msg)?;
+        // Keep msg pointing at the first byte of the message until the very end.
+        let mut unparsed = *msg;
+        let header = Header::parse(&mut unparsed)?;
 
         let mut questions = Vec::with_capacity(header.question_count);
         for _ in 0..header.question_count {
-            let mut unparsed = *msg;
-            let question = Question::parse(msg)?;
+            let question = Question::parse(msg, &mut unparsed)?;
             questions.push(question);
         }
 
-        // let mut answers = Vec::with_capacity(header.answer_count);
-        // for _ in 0..header.answer_count {
-        //     let answer = rr::ResourceRecord::parse(msg, &mut unparsed)?;
-        // }
-        unimplemented!()
-        //Ok((message, bytes_parsed));
+        let mut answers = Vec::with_capacity(header.answer_count);
+        for _ in 0..header.answer_count {
+            let answer = rr::ResourceRecord::parse(msg, &mut unparsed)?;
+            answers.push(answer);
+        }
+
+        let mut authorities = Vec::with_capacity(header.authority_count);
+        for _ in 0..header.authority_count {
+            let authority = rr::ResourceRecord::parse(msg, &mut unparsed)?;
+            authorities.push(authority);
+        }
+
+        let mut additionals = Vec::with_capacity(header.additional_count);
+        for _ in 0..header.additional_count {
+            let additional = rr::ResourceRecord::parse(msg, &mut unparsed)?;
+            additionals.push(additional);
+        }
+
+        let message = Message {
+            header,
+            questions,
+            answers,
+            authorities,
+            additionals,
+        };
+        Ok(message)
     }
 }
 pub struct Header {
@@ -40,7 +60,7 @@ pub struct Header {
     response_code: ResponseCode,
     question_count: usize,
     answer_count: usize,
-    nameserver_count: usize,
+    authority_count: usize,
     additional_count: usize,
 }
 
@@ -74,8 +94,8 @@ impl Header {
         let question_count = msg.get_u16() as usize;
         check_remaining!(2, "answer count");
         let answer_count = msg.get_u16() as usize;
-        check_remaining!(2, "nameserver count");
-        let nameserver_count = msg.get_u16() as usize;
+        check_remaining!(2, "authority count");
+        let authority_count = msg.get_u16() as usize;
         check_remaining!(2, "additional count");
         let additional_count = msg.get_u16() as usize;
 
@@ -90,7 +110,7 @@ impl Header {
             response_code,
             question_count,
             answer_count,
-            nameserver_count,
+            authority_count: authority_count,
             additional_count,
         };
         Ok(header)
@@ -167,18 +187,22 @@ pub struct Question {
 }
 
 impl Question {
-    /// msg must point to the very first byte of the message,
-    /// not the current location in the message.
+    /// msg must point to the very first byte of the message.
     fn parse<'a>(msg: &'a [u8], unparsed: &mut &'a [u8]) -> anyhow::Result<Self> {
         let name = name::parse(msg, unparsed)?;
         let r#type = QuestionType::parse(unparsed)?;
         let class = QuestionClass::parse(unparsed)?;
 
-        let question = Question { name, r#type, class };
+        let question = Question {
+            name,
+            r#type,
+            class,
+        };
         Ok(question)
     }
 }
 
+#[derive(Debug, PartialEq)]
 pub enum QuestionType {
     RrType(rr::Type),
     Afxr,
@@ -188,25 +212,25 @@ pub enum QuestionType {
 }
 
 impl QuestionType {
-    fn parse(buf: &mut &[u8]) -> anyhow::Result<Self> {
-        use QuestionType::*;
+    fn parse(unparsed: &mut &[u8]) -> anyhow::Result<Self> {
         use crate::rr;
+        use QuestionType::*;
 
-        if buf.remaining() < 2 {
+        if unparsed.remaining() < 2 {
             anyhow::bail!("incomplete question type");
         }
 
         // Attempt to parse a base resource record type first by peeking at the value.
-        let mut peek = *buf;
+        let mut peek = *unparsed;
         let question_type = match rr::Type::parse(&mut peek) {
             Ok(rr_type) => {
                 // Base resource record type. Advance past the peeked at value.
-                buf.advance(2);
+                unparsed.advance(2);
                 RrType(rr_type)
             }
             Err(_) => {
                 // Not a base resource record type. Check the remaining possibilities.
-                match buf.get_u16() {
+                match unparsed.get_u16() {
                     252 => Afxr,
                     253 => Mailb,
                     254 => Maila,
@@ -215,7 +239,7 @@ impl QuestionType {
                 }
             }
         };
-        
+
         Ok(question_type)
     }
 }
@@ -226,45 +250,78 @@ pub enum QuestionClass {
 }
 
 impl QuestionClass {
-    fn parse(buf: &mut &[u8]) -> anyhow::Result<Self> {
-        use QuestionClass::*;
+    fn parse(unparsed: &mut &[u8]) -> anyhow::Result<Self> {
         use crate::rr;
+        use QuestionClass::*;
 
-        if buf.remaining() < 2 {
+        if unparsed.remaining() < 2 {
             anyhow::bail!("incomplete question class");
         }
 
         // Attempt to parse a base resource record class first by peeking at the value.
-        let mut peek = *buf;
+        let mut peek = *unparsed;
         let question_class = match rr::Class::parse(&mut peek) {
             Ok(rr_class) => {
                 // Base resource record class. Advance past the peeked at value.
-                buf.advance(2);
+                unparsed.advance(2);
                 RrClass(rr_class)
             }
             Err(_) => {
                 // Not a base resource record class. Check the remaining possibilities.
-                match buf.get_u16() {
+                match unparsed.get_u16() {
                     255 => Any,
                     n => anyhow::bail!("undefined question class {n}"),
                 }
             }
         };
-        
+
         Ok(question_class)
     }
 }
-
-pub struct Answer {}
-
-pub struct Authority {}
-
-pub struct Additional {}
 
 #[cfg(test)]
 mod test {
     use super::*;
     use bytes::BufMut;
+
+    #[test]
+    fn parse_opcode() -> anyhow::Result<()> {
+        let bitfields = 0 << 11;
+        assert_eq!(Opcode::parse(bitfields)?, Opcode::StandardQuery);
+        let bitfields = 1 << 11;
+        assert_eq!(Opcode::parse(bitfields)?, Opcode::InverseQuery);
+        let bitfields = 2 << 11;
+        assert_eq!(Opcode::parse(bitfields)?, Opcode::ServerStatusRequest);
+
+        let bitfields = 3 << 11;
+        assert!(Opcode::parse(bitfields).is_err());
+
+        Ok(())
+    }
+
+    #[test]
+    fn parse_response_code() -> anyhow::Result<()> {
+        let bitfields = 0;
+        assert_eq!(ResponseCode::parse(bitfields)?, ResponseCode::NoError);
+        let bitfields = 1;
+        assert_eq!(ResponseCode::parse(bitfields)?, ResponseCode::FormatError);
+        let bitfields = 2;
+        assert_eq!(ResponseCode::parse(bitfields)?, ResponseCode::ServerFailure);
+        let bitfields = 3;
+        assert_eq!(ResponseCode::parse(bitfields)?, ResponseCode::NameError);
+        let bitfields = 4;
+        assert_eq!(
+            ResponseCode::parse(bitfields)?,
+            ResponseCode::NotImplemented
+        );
+        let bitfields = 5;
+        assert_eq!(ResponseCode::parse(bitfields)?, ResponseCode::Refused);
+
+        let bitfields = 6;
+        assert!(ResponseCode::parse(bitfields).is_err());
+
+        Ok(())
+    }
 
     #[test]
     fn parse_header() -> anyhow::Result<()> {
@@ -293,8 +350,8 @@ mod test {
         buf.put_u16(question_count);
         let answer_count = 4;
         buf.put_u16(answer_count);
-        let nameserver_count = 1;
-        buf.put_u16(nameserver_count);
+        let authority_count = 1;
+        buf.put_u16(authority_count);
         let additional_count = 3;
         buf.put_u16(additional_count);
 
@@ -311,7 +368,7 @@ mod test {
         assert_eq!(header.response_code, response_code);
         assert_eq!(header.question_count, question_count as usize);
         assert_eq!(header.answer_count, answer_count as usize);
-        assert_eq!(header.nameserver_count, nameserver_count as usize);
+        assert_eq!(header.authority_count, authority_count as usize);
         assert_eq!(header.additional_count, additional_count as usize);
         assert_eq!(unsafe { hdr.as_ptr().offset_from(buf.as_ptr()) }, 12);
 
@@ -330,4 +387,86 @@ mod test {
 
         Ok(())
     }
+
+    // fn parse(unparsed: &mut &[u8]) -> anyhow::Result<Self> {
+    //     use crate::rr;
+    //     use QuestionType::*;
+
+    //     if unparsed.remaining() < 2 {
+    //         anyhow::bail!("incomplete question type");
+    //     }
+
+    //     // Attempt to parse a base resource record type first by peeking at the value.
+    //     let mut peek = *unparsed;
+    //     let question_type = match rr::Type::parse(&mut peek) {
+    //         Ok(rr_type) => {
+    //             // Base resource record type. Advance past the peeked at value.
+    //             unparsed.advance(2);
+    //             RrType(rr_type)
+    //         }
+    //         Err(_) => {
+    //             // Not a base resource record type. Check the remaining possibilities.
+    //             match unparsed.get_u16() {
+    //                 252 => Afxr,
+    //                 253 => Mailb,
+    //                 254 => Maila,
+    //                 255 => All,
+    //                 n => anyhow::bail!("undefined question type {n}"),
+    //             }
+    //         }
+    //     };
+
+    //     Ok(question_type)
+    // }
+
+    #[test]
+    fn parse_question_type() -> anyhow::Result<()> {
+        let mut buf = Vec::new();
+        buf.put_u16(5);
+        let mut unparsed = &buf[..];
+        assert_eq!(
+            QuestionType::parse(&mut unparsed)?,
+            QuestionType::RrType(rr::Type::CNAME)
+        );
+        assert_eq!(unsafe { unparsed.as_ptr().offset_from(buf.as_ptr()) }, 2);
+
+        macro_rules! test_qtype {
+            ($num:expr, $result:tt) => {
+                let mut buf = Vec::new();
+                buf.put_u16($num);
+                let mut unparsed = &buf[..];
+                assert_eq!(QuestionType::parse(&mut unparsed)?, QuestionType::$result);
+                assert_eq!(unsafe { unparsed.as_ptr().offset_from(buf.as_ptr()) }, 2);
+            };
+        }
+
+        test_qtype!(252, Afxr);
+        test_qtype!(253, Mailb);
+        test_qtype!(254, Maila);
+        test_qtype!(255, All);
+
+        let mut buf = Vec::new();
+        buf.put_u16(256);
+        let mut unparsed = &buf[..];
+        assert!(QuestionType::parse(&mut unparsed).is_err());
+
+        let mut buf = Vec::new();
+        buf.put_u8(252);
+        let mut unparsed = &buf[..];
+        assert!(QuestionType::parse(&mut unparsed).is_err());
+
+        Ok(())
+    }
+
+    #[test]
+    fn parse_question() -> anyhow::Result<()> {
+        Ok(())
+    }
+
+    ///
+    /// Serialize
+    ///
+
+    #[test]
+    fn serialize_opcode() {}
 }
