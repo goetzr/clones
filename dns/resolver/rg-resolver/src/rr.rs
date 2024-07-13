@@ -49,7 +49,7 @@ impl ResourceRecord {
     }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Copy, Clone, Debug, PartialEq)]
 pub enum Type {
     A,
     NS,
@@ -94,9 +94,32 @@ impl Type {
             n => Err(anyhow::anyhow!("invalid RR type '{n}'")),
         }
     }
+
+    pub fn serialize(&self) -> u16 {
+        use Type::*;
+
+        match self {
+            A => 1,
+            NS => 2,
+            MD => 3,
+            MF => 4,
+            CNAME => 5,
+            SOA => 6,
+            MB => 7,
+            MG => 8,
+            MR => 9,
+            NULL => 10,
+            WKS => 11,
+            PTR => 12,
+            HINFO => 13,
+            MINFO => 14,
+            MX => 15,
+            TXT => 16,
+        }
+    }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Copy, Clone, Debug, PartialEq)]
 pub enum Class {
     IN,
     CS,
@@ -115,6 +138,17 @@ impl Class {
             3 => Ok(Class::CH),
             4 => Ok(Class::HS),
             n => Err(anyhow::anyhow!("invalid RR class '{n}'")),
+        }
+    }
+
+    pub fn serialize(&self) -> u16 {
+        use Class::*;
+
+        match self {
+            IN => 1,
+            CS => 2,
+            CH => 3,
+            HS => 4,
         }
     }
 }
@@ -263,5 +297,25 @@ mod test {
         );
 
         Ok(())
+    }
+
+    #[test]
+    fn serialize_type() {
+        assert_eq!(Type::A.serialize(), 1);
+        assert_eq!(Type::NS.serialize(), 2);
+        assert_eq!(Type::MD.serialize(), 3);
+        assert_eq!(Type::MF.serialize(), 4);
+        assert_eq!(Type::CNAME.serialize(), 5);
+        assert_eq!(Type::SOA.serialize(), 6);
+        assert_eq!(Type::MB.serialize(), 7);
+        assert_eq!(Type::MG.serialize(), 8);
+        assert_eq!(Type::MR.serialize(), 9);
+        assert_eq!(Type::NULL.serialize(), 10);
+        assert_eq!(Type::WKS.serialize(), 11);
+        assert_eq!(Type::PTR.serialize(), 12);
+        assert_eq!(Type::HINFO.serialize(), 13);
+        assert_eq!(Type::MINFO.serialize(), 14);
+        assert_eq!(Type::MX.serialize(), 15);
+        assert_eq!(Type::TXT.serialize(), 16);
     }
 }

@@ -1,5 +1,5 @@
 use crate::{name, rr};
-use bytes::Buf;
+use bytes::{Buf, BufMut};
 
 pub struct Message {
     header: Header,
@@ -117,7 +117,7 @@ impl Header {
     }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Copy, Clone, Debug, PartialEq)]
 enum Opcode {
     StandardQuery,
     InverseQuery,
@@ -144,7 +144,7 @@ impl Opcode {
     }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Copy, Clone, Debug, PartialEq)]
 enum ResponseCode {
     NoError,
     FormatError,
@@ -200,9 +200,20 @@ impl Question {
         };
         Ok(question)
     }
+
+    fn serialize(&self) -> anyhow::Result<Vec<u8>> {
+        let mut buf = Vec::new();
+        // * The question section holds the first name in the message, so it can't be compressed.
+        let mut name = name::serialize(&self.name, None)?;
+        buf.append(&mut name);
+        buf.put_u16(self.r#type.serialize());
+        buf.put_u16(self.class.serialize());
+
+        Ok(buf)
+    }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Copy, Clone, Debug, PartialEq)]
 pub enum QuestionType {
     RrType(rr::Type),
     Afxr,
@@ -242,8 +253,21 @@ impl QuestionType {
 
         Ok(question_type)
     }
+
+    fn serialize(&self) -> u16 {
+        use QuestionType::*;
+
+        match self {
+            RrType(rr_type) => rr_type.serialize(),
+            Afxr => 252,
+            Mailb => 253,
+            Maila => 254,
+            All => 255,
+        }
+    }
 }
 
+#[derive(Copy, Clone, Debug, PartialEq)]
 pub enum QuestionClass {
     RrClass(rr::Class),
     Any,
@@ -276,6 +300,15 @@ impl QuestionClass {
         };
 
         Ok(question_class)
+    }
+
+    fn serialize(&self) -> u16 {
+        use QuestionClass::*;
+
+        match self {
+            RrClass(rr_class) => rr_class.serialize(),
+            Any => 255,
+        }
     }
 }
 
@@ -388,37 +421,6 @@ mod test {
         Ok(())
     }
 
-    // fn parse(unparsed: &mut &[u8]) -> anyhow::Result<Self> {
-    //     use crate::rr;
-    //     use QuestionType::*;
-
-    //     if unparsed.remaining() < 2 {
-    //         anyhow::bail!("incomplete question type");
-    //     }
-
-    //     // Attempt to parse a base resource record type first by peeking at the value.
-    //     let mut peek = *unparsed;
-    //     let question_type = match rr::Type::parse(&mut peek) {
-    //         Ok(rr_type) => {
-    //             // Base resource record type. Advance past the peeked at value.
-    //             unparsed.advance(2);
-    //             RrType(rr_type)
-    //         }
-    //         Err(_) => {
-    //             // Not a base resource record type. Check the remaining possibilities.
-    //             match unparsed.get_u16() {
-    //                 252 => Afxr,
-    //                 253 => Mailb,
-    //                 254 => Maila,
-    //                 255 => All,
-    //                 n => anyhow::bail!("undefined question type {n}"),
-    //             }
-    //         }
-    //     };
-
-    //     Ok(question_type)
-    // }
-
     #[test]
     fn parse_question_type() -> anyhow::Result<()> {
         let mut buf = Vec::new();
@@ -459,14 +461,107 @@ mod test {
     }
 
     #[test]
-    fn parse_question() -> anyhow::Result<()> {
+    fn parse_question_class() -> anyhow::Result<()> {
+        let mut buf = Vec::new();
+        buf.put_u16(1);
+        let mut unparsed = &buf[..];
+        assert_eq!(
+            QuestionClass::parse(&mut unparsed)?,
+            QuestionClass::RrClass(rr::Class::IN)
+        );
+        assert_eq!(unsafe { unparsed.as_ptr().offset_from(buf.as_ptr()) }, 2);
+
+        let mut buf = Vec::new();
+        buf.put_u16(255);
+        let mut unparsed = &buf[..];
+        assert_eq!(QuestionClass::parse(&mut unparsed)?, QuestionClass::Any);
+        assert_eq!(unsafe { unparsed.as_ptr().offset_from(buf.as_ptr()) }, 2);
+
+        let mut buf = Vec::new();
+        buf.put_u16(256);
+        let mut unparsed = &buf[..];
+        assert!(QuestionClass::parse(&mut unparsed).is_err());
+
+        let mut buf = Vec::new();
+        buf.put_u8(255);
+        let mut unparsed = &buf[..];
+        assert!(QuestionClass::parse(&mut unparsed).is_err());
+
         Ok(())
     }
 
-    ///
-    /// Serialize
-    ///
+    #[test]
+    fn parse_question() -> anyhow::Result<()> {
+        let mut buf = Vec::new();
+        let name = "google.com.";
+        let mut name_ser = name::serialize(name, None)?;
+        buf.append(&mut name_ser);
+        let r#type = QuestionType::RrType(rr::Type::CNAME);
+        buf.put_u16(r#type.serialize());
+        let class = QuestionClass::RrClass(rr::Class::IN);
+        buf.put_u16(class.serialize());
+
+        let mut unparsed = &buf[..];
+        let question = Question::parse(&buf[..], &mut unparsed)?;
+
+        assert_eq!(question.name, name);
+        assert_eq!(question.r#type, r#type);
+        assert_eq!(question.class, class);
+        assert_eq!(unsafe { unparsed.as_ptr().offset_from(buf.as_ptr()) }, 16);
+
+        Ok(())
+    }
 
     #[test]
-    fn serialize_opcode() {}
+
+
+    #[test]
+    fn serialize_opcode() {
+        assert_eq!(Opcode::StandardQuery.serialize(), 0);
+        assert_eq!(Opcode::InverseQuery.serialize(), 1);
+        assert_eq!(Opcode::ServerStatusRequest.serialize(), 2);
+    }
+
+    #[test]
+    fn serialize_response_code() {
+        assert_eq!(ResponseCode::NoError.serialize(), 0);
+        assert_eq!(ResponseCode::FormatError.serialize(), 1);
+        assert_eq!(ResponseCode::ServerFailure.serialize(), 2);
+        assert_eq!(ResponseCode::NameError.serialize(), 3);
+        assert_eq!(ResponseCode::NotImplemented.serialize(), 4);
+        assert_eq!(ResponseCode::Refused.serialize(), 5);
+    }
+
+    #[test]
+    fn serialize_question_type() {
+        assert_eq!(QuestionType::RrType(rr::Type::CNAME).serialize(), 5);
+        assert_eq!(QuestionType::Afxr.serialize(), 252);
+        assert_eq!(QuestionType::Mailb.serialize(), 253);
+        assert_eq!(QuestionType::Maila.serialize(), 254);
+        assert_eq!(QuestionType::All.serialize(), 255);
+    }
+
+    #[test]
+    fn serialize_question_class() {
+        assert_eq!(QuestionClass::RrClass(rr::Class::IN).serialize(), 1);
+        assert_eq!(QuestionClass::Any.serialize(), 255);
+    }
+
+    #[test]
+    fn serialize_question() -> anyhow::Result<()> {
+        let name = "google.com.".to_string();
+        let r#type = QuestionType::RrType(rr::Type::CNAME);
+        let class = QuestionClass::RrClass(rr::Class::IN);
+        let question = Question { name: name.clone(), r#type, class };
+
+        let buf = question.serialize()?;
+        // * The question section holds the first name in the message, so it can't be compressed.
+        let name_ser = name::serialize(&name, None)?;
+        assert_eq!(&buf[..name_ser.len()], name_ser);
+        let mut cursor = &buf[name_ser.len()..];
+        assert_eq!(cursor.get_u16(), r#type.serialize());
+        assert_eq!(cursor.get_u16(), class.serialize());
+
+        Ok(())
+    }
 }
