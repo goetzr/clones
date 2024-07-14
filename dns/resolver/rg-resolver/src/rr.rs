@@ -1,5 +1,5 @@
 use crate::name;
-use bytes::Buf;
+use bytes::{Buf, BufMut};
 
 pub struct ResourceRecord {
     pub name: String,
@@ -10,7 +10,7 @@ pub struct ResourceRecord {
 }
 
 impl ResourceRecord {
-    /// msg must point to the very first byte of the message.
+    /// * msg must point to the very first byte of the message.
     pub fn parse<'a>(msg: &'a [u8], unparsed: &mut &'a [u8]) -> anyhow::Result<ResourceRecord> {
         let name = name::parse(msg, unparsed)?;
         let r#type = Type::parse(unparsed)?;
@@ -46,6 +46,28 @@ impl ResourceRecord {
         }
         unparsed.copy_to_slice(&mut data[..]);
         Ok(data)
+    }
+
+    /// * For a nameserver that needs to create ResourceRecord instances and serialize them,
+    /// * it will ideally keep track of the names it's generated thus far,
+    /// * and for every new name it needs to generate see if it's a superset of a
+    /// * previously generated name and should be compressed.
+    /// * For a resolver, the only name it needs to generate is the question name,
+    /// * which is always the first name in the message so it can't be compressed.
+    /// * Because only the resolver is being implemented at this point, and serialization
+    /// * of ResourceRecord instances is only being implemented to test the
+    /// * parsing of Message instances, simply serialize the name of each
+    /// * ResourceRecord instance as an uncompressed name.
+    pub fn serialize(&self) -> anyhow::Result<Vec<u8>> {
+        let mut buf = Vec::new();
+        buf.append(&mut name::serialize(&self.name, None)?);
+        buf.put_u16(self.r#type.serialize());
+        buf.put_u16(self.class.serialize());
+        buf.put_u32(self.ttl);
+        if let Some(data) = self.data.as_ref() {
+            buf.append(&mut data.clone());
+        }
+        Ok(buf)
     }
 }
 
@@ -317,5 +339,37 @@ mod test {
         assert_eq!(Type::MINFO.serialize(), 14);
         assert_eq!(Type::MX.serialize(), 15);
         assert_eq!(Type::TXT.serialize(), 16);
+    }
+
+    #[test]
+    fn serialize_class() {
+        assert_eq!(Class::IN.serialize(), 1);
+        assert_eq!(Class::CS.serialize(), 2);
+        assert_eq!(Class::CH.serialize(), 3);
+        assert_eq!(Class::HS.serialize(), 4);
+    }
+
+    /// ! When/if a nameserver is implemented, which ideally will use compressed names,
+    /// ! this test should be updated to exercise compressed names in ResourceRecord instances.
+    #[test]
+    fn serialize_rr() -> anyhow::Result<()> {
+        let rr = ResourceRecord {
+            name: "google.com.".to_string(),
+            r#type: Type::A,
+            class: Class::IN,
+            ttl: 100,
+            data: Some(vec![43,56,121,92]),
+        };
+
+        let buf = rr.serialize()?;
+        let name_ser = name::serialize(&rr.name, None)?;
+        assert_eq!(&buf[..name_ser.len()], name_ser);
+        let mut cursor = &buf[name_ser.len()..];
+        assert_eq!(cursor.get_u16(), rr.r#type.serialize());
+        assert_eq!(cursor.get_u16(), rr.class.serialize());
+        assert_eq!(cursor.get_u32(), rr.ttl);
+        assert_eq!(cursor, rr.data.unwrap());
+
+        Ok(())
     }
 }

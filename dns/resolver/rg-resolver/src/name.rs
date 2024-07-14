@@ -26,7 +26,7 @@ pub fn serialize(name: &str, ptr: Option<u16>) -> anyhow::Result<Vec<u8>> {
     Ok(buf)
 }
 
-/// msg must point to the very first byte of the message.
+/// *  to the very first byte of the message.
 pub fn parse<'a>(msg: &'a [u8], unparsed: &mut &'a [u8]) -> anyhow::Result<String> {
     let mut name = String::new();
     let mut buf = *unparsed;

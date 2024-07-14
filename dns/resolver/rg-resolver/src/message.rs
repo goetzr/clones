@@ -65,19 +65,19 @@ pub struct Header {
 }
 
 impl Header {
-    fn parse(msg: &mut &[u8]) -> anyhow::Result<Header> {
+    fn parse(unparsed: &mut &[u8]) -> anyhow::Result<Header> {
         macro_rules! check_remaining {
             ($size:expr, $field:expr) => {
-                if msg.remaining() < $size {
+                if unparsed.remaining() < $size {
                     anyhow::bail!("incomplete header field: {}", $field);
                 }
             };
         }
         check_remaining!(2, "id");
-        let id = msg.get_u16();
+        let id = unparsed.get_u16();
 
         check_remaining!(2, "bitfields");
-        let bitfields = msg.get_u16();
+        let bitfields = unparsed.get_u16();
         let is_response = (bitfields >> 15) & 1 == 1;
         let opcode = Opcode::parse(bitfields)?;
         let is_authoritative_answer = (bitfields >> 10) & 1 == 1;
@@ -91,13 +91,13 @@ impl Header {
         let response_code = ResponseCode::parse(bitfields)?;
 
         check_remaining!(2, "question count");
-        let question_count = msg.get_u16() as usize;
+        let question_count = unparsed.get_u16() as usize;
         check_remaining!(2, "answer count");
-        let answer_count = msg.get_u16() as usize;
+        let answer_count = unparsed.get_u16() as usize;
         check_remaining!(2, "authority count");
-        let authority_count = msg.get_u16() as usize;
+        let authority_count = unparsed.get_u16() as usize;
         check_remaining!(2, "additional count");
-        let additional_count = msg.get_u16() as usize;
+        let additional_count = unparsed.get_u16() as usize;
 
         let header = Header {
             id,
@@ -154,7 +154,8 @@ impl Opcode {
         }
     }
 
-    fn serialize(&self) -> u8 {
+    fn serialize(&self) -> u16 {
+        panic!("Make this return the shifted result");
         use Opcode::*;
         match self {
             StandardQuery => 0,
@@ -187,7 +188,8 @@ impl ResponseCode {
         }
     }
 
-    fn serialize(&self) -> u8 {
+    fn serialize(&self) -> u16 {
+        panic!("Make this return the shifted result");
         use ResponseCode::*;
         match self {
             NoError => 0,
@@ -207,7 +209,7 @@ pub struct Question {
 }
 
 impl Question {
-    /// msg must point to the very first byte of the message.
+    /// * msg must point to the very first byte of the message.
     fn parse<'a>(msg: &'a [u8], unparsed: &mut &'a [u8]) -> anyhow::Result<Self> {
         let name = name::parse(msg, unparsed)?;
         let r#type = QuestionType::parse(unparsed)?;
@@ -339,12 +341,9 @@ mod test {
 
     #[test]
     fn parse_opcode() -> anyhow::Result<()> {
-        let bitfields = 0 << 11;
-        assert_eq!(Opcode::parse(bitfields)?, Opcode::StandardQuery);
-        let bitfields = 1 << 11;
-        assert_eq!(Opcode::parse(bitfields)?, Opcode::InverseQuery);
-        let bitfields = 2 << 11;
-        assert_eq!(Opcode::parse(bitfields)?, Opcode::ServerStatusRequest);
+        assert_eq!(Opcode::parse(Opcode::StandardQuery.serialize())?, Opcode::StandardQuery);
+        assert_eq!(Opcode::parse(Opcode::InverseQuery.serialize())?, Opcode::InverseQuery);
+        assert_eq!(Opcode::parse(Opcode::ServerStatusRequest.serialize())?, Opcode::ServerStatusRequest);
 
         let bitfields = 3 << 11;
         assert!(Opcode::parse(bitfields).is_err());
@@ -354,21 +353,15 @@ mod test {
 
     #[test]
     fn parse_response_code() -> anyhow::Result<()> {
-        let bitfields = 0;
-        assert_eq!(ResponseCode::parse(bitfields)?, ResponseCode::NoError);
-        let bitfields = 1;
-        assert_eq!(ResponseCode::parse(bitfields)?, ResponseCode::FormatError);
-        let bitfields = 2;
-        assert_eq!(ResponseCode::parse(bitfields)?, ResponseCode::ServerFailure);
-        let bitfields = 3;
-        assert_eq!(ResponseCode::parse(bitfields)?, ResponseCode::NameError);
-        let bitfields = 4;
+        assert_eq!(ResponseCode::parse(ResponseCode::NoError.serialize())?, ResponseCode::NoError);
+        assert_eq!(ResponseCode::parse(ResponseCode::FormatError.serialize())?, ResponseCode::FormatError);
+        assert_eq!(ResponseCode::parse(ResponseCode::ServerFailure.serialize())?, ResponseCode::ServerFailure);
+        assert_eq!(ResponseCode::parse(ResponseCode::NameError.serialize())?, ResponseCode::NameError);
         assert_eq!(
-            ResponseCode::parse(bitfields)?,
+            ResponseCode::parse(ResponseCode::NotImplemented.serialize())?,
             ResponseCode::NotImplemented
         );
-        let bitfields = 5;
-        assert_eq!(ResponseCode::parse(bitfields)?, ResponseCode::Refused);
+        assert_eq!(ResponseCode::parse(ResponseCode::Refused.serialize())?, ResponseCode::Refused);
 
         let bitfields = 6;
         assert!(ResponseCode::parse(bitfields).is_err());
@@ -378,65 +371,51 @@ mod test {
 
     #[test]
     fn parse_header() -> anyhow::Result<()> {
-        let mut buf = Vec::new();
+        let header = Header {
+            id: 7,
+            is_response: true,
+            opcode: Opcode::StandardQuery,
+            is_authoritative_answer: true,
+            is_truncated: false,
+            is_recursion_desired: false,
+            is_recursion_available: true,
+            response_code: ResponseCode::NoError,
+            question_count: 2,
+            answer_count: 2,
+            authority_count: 2,
+            additional_count: 2,
+        };
+        let buf = header.serialize();
 
-        let id = 27;
-        buf.put_u16(id);
+        let mut unparsed = &buf[..];
+        let parsed_hdr = Header::parse(&mut unparsed)?;
 
-        let is_response = true;
-        let opcode = Opcode::StandardQuery;
-        let is_authoritative_answer = true;
-        let is_truncated = false;
-        let is_recursion_desired = true;
-        let is_recursion_available = false;
-        let response_code = ResponseCode::NameError;
-        let bitfields: u16 = (is_response as u16) << 15
-            | (opcode.serialize() as u16) << 11
-            | (is_authoritative_answer as u16) << 10
-            | (is_truncated as u16) << 9
-            | (is_recursion_desired as u16) << 8
-            | (is_recursion_available as u16) << 7
-            | response_code.serialize() as u16;
-        buf.put_u16(bitfields);
+        assert_eq!(parsed_hdr.id, header.id);
+        assert_eq!(parsed_hdr.is_response, header.is_response);
+        assert_eq!(parsed_hdr.opcode, header.opcode);
+        assert_eq!(parsed_hdr.is_authoritative_answer, header.is_authoritative_answer);
+        assert_eq!(parsed_hdr.is_truncated, header.is_truncated);
+        assert_eq!(parsed_hdr.is_recursion_desired, header.is_recursion_desired);
+        assert_eq!(parsed_hdr.is_recursion_available, header.is_recursion_available);
+        assert_eq!(parsed_hdr.response_code, header.response_code);
+        assert_eq!(parsed_hdr.question_count, header.question_count);
+        assert_eq!(parsed_hdr.answer_count, header.answer_count);
+        assert_eq!(parsed_hdr.authority_count, header.authority_count);
+        assert_eq!(parsed_hdr.additional_count, header.additional_count);
+        assert_eq!(unsafe { unparsed.as_ptr().offset_from(buf.as_ptr()) as usize }, buf.len());
 
-        let question_count = 2;
-        buf.put_u16(question_count);
-        let answer_count = 4;
-        buf.put_u16(answer_count);
-        let authority_count = 1;
-        buf.put_u16(authority_count);
-        let additional_count = 3;
-        buf.put_u16(additional_count);
-
-        let mut hdr = &buf[..];
-        let header = Header::parse(&mut hdr)?;
-
-        assert_eq!(header.id, id);
-        assert_eq!(header.is_response, is_response);
-        assert_eq!(header.opcode, opcode);
-        assert_eq!(header.is_authoritative_answer, is_authoritative_answer);
-        assert_eq!(header.is_truncated, is_truncated);
-        assert_eq!(header.is_recursion_desired, is_recursion_desired);
-        assert_eq!(header.is_recursion_available, is_recursion_available);
-        assert_eq!(header.response_code, response_code);
-        assert_eq!(header.question_count, question_count as usize);
-        assert_eq!(header.answer_count, answer_count as usize);
-        assert_eq!(header.authority_count, authority_count as usize);
-        assert_eq!(header.additional_count, additional_count as usize);
-        assert_eq!(unsafe { hdr.as_ptr().offset_from(buf.as_ptr()) }, 12);
-
-        let mut hdr = &buf[..1];
-        assert!(Header::parse(&mut hdr).is_err());
-        let mut hdr = &buf[..3];
-        assert!(Header::parse(&mut hdr).is_err());
-        let mut hdr = &buf[..5];
-        assert!(Header::parse(&mut hdr).is_err());
-        let mut hdr = &buf[..7];
-        assert!(Header::parse(&mut hdr).is_err());
-        let mut hdr = &buf[..9];
-        assert!(Header::parse(&mut hdr).is_err());
-        let mut hdr = &buf[..11];
-        assert!(Header::parse(&mut hdr).is_err());
+        let mut unparsed = &buf[..1];
+        assert!(Header::parse(&mut unparsed).is_err());
+        let mut unparsed = &buf[..3];
+        assert!(Header::parse(&mut unparsed).is_err());
+        let mut unparsed = &buf[..5];
+        assert!(Header::parse(&mut unparsed).is_err());
+        let mut unparsed = &buf[..7];
+        assert!(Header::parse(&mut unparsed).is_err());
+        let mut unparsed = &buf[..9];
+        assert!(Header::parse(&mut unparsed).is_err());
+        let mut unparsed = &buf[..11];
+        assert!(Header::parse(&mut unparsed).is_err());
 
         Ok(())
     }
@@ -444,7 +423,7 @@ mod test {
     #[test]
     fn parse_question_type() -> anyhow::Result<()> {
         let mut buf = Vec::new();
-        buf.put_u16(5);
+        buf.put_u16(rr::Type::CNAME.serialize());
         let mut unparsed = &buf[..];
         assert_eq!(
             QuestionType::parse(&mut unparsed)?,
@@ -452,20 +431,21 @@ mod test {
         );
         assert_eq!(unsafe { unparsed.as_ptr().offset_from(buf.as_ptr()) }, 2);
 
+        use QuestionType::*;
         macro_rules! test_qtype {
-            ($num:expr, $result:tt) => {
+            ($result:expr) => {
                 let mut buf = Vec::new();
-                buf.put_u16($num);
+                buf.put_u16($result.serialize());
                 let mut unparsed = &buf[..];
-                assert_eq!(QuestionType::parse(&mut unparsed)?, QuestionType::$result);
-                assert_eq!(unsafe { unparsed.as_ptr().offset_from(buf.as_ptr()) }, 2);
+                assert_eq!(QuestionType::parse(&mut unparsed)?, $result);
+                assert_eq!(unsafe { unparsed.as_ptr().offset_from(buf.as_ptr()) as usize }, buf.len());
             };
         }
 
-        test_qtype!(252, Afxr);
-        test_qtype!(253, Mailb);
-        test_qtype!(254, Maila);
-        test_qtype!(255, All);
+        test_qtype!(Afxr);
+        test_qtype!(Mailb);
+        test_qtype!(Maila);
+        test_qtype!(All);
 
         let mut buf = Vec::new();
         buf.put_u16(256);
@@ -483,19 +463,19 @@ mod test {
     #[test]
     fn parse_question_class() -> anyhow::Result<()> {
         let mut buf = Vec::new();
-        buf.put_u16(1);
+        buf.put_u16(rr::Class::IN.serialize());
         let mut unparsed = &buf[..];
         assert_eq!(
             QuestionClass::parse(&mut unparsed)?,
             QuestionClass::RrClass(rr::Class::IN)
         );
-        assert_eq!(unsafe { unparsed.as_ptr().offset_from(buf.as_ptr()) }, 2);
+        assert_eq!(unsafe { unparsed.as_ptr().offset_from(buf.as_ptr()) as usize }, buf.len());
 
         let mut buf = Vec::new();
-        buf.put_u16(255);
+        buf.put_u16(QuestionClass::Any.serialize());
         let mut unparsed = &buf[..];
         assert_eq!(QuestionClass::parse(&mut unparsed)?, QuestionClass::Any);
-        assert_eq!(unsafe { unparsed.as_ptr().offset_from(buf.as_ptr()) }, 2);
+        assert_eq!(unsafe { unparsed.as_ptr().offset_from(buf.as_ptr()) as usize }, buf.len());
 
         let mut buf = Vec::new();
         buf.put_u16(256);
@@ -512,29 +492,74 @@ mod test {
 
     #[test]
     fn parse_question() -> anyhow::Result<()> {
-        let mut buf = Vec::new();
-        let name = "google.com.";
-        let mut name_ser = name::serialize(name, None)?;
-        buf.append(&mut name_ser);
-        let r#type = QuestionType::RrType(rr::Type::CNAME);
-        buf.put_u16(r#type.serialize());
-        let class = QuestionClass::RrClass(rr::Class::IN);
-        buf.put_u16(class.serialize());
+        let question = Question {
+            name: "google.com.".to_string(),
+            r#type: QuestionType::RrType(rr::Type::CNAME),
+            class: QuestionClass::RrClass(rr::Class::IN),
+        };
+        let buf = question.serialize()?;
 
         let mut unparsed = &buf[..];
-        let question = Question::parse(&buf[..], &mut unparsed)?;
+        let question_parsed = Question::parse(&buf[..], &mut unparsed)?;
 
-        assert_eq!(question.name, name);
-        assert_eq!(question.r#type, r#type);
-        assert_eq!(question.class, class);
-        assert_eq!(unsafe { unparsed.as_ptr().offset_from(buf.as_ptr()) }, 16);
+        assert_eq!(question_parsed.name, question.name);
+        assert_eq!(question_parsed.r#type, question.r#type);
+        assert_eq!(question_parsed.class, question.class);
+        assert_eq!(unsafe { unparsed.as_ptr().offset_from(buf.as_ptr()) as usize }, buf.len());
 
         Ok(())
     }
 
     #[test]
     fn parse_message() -> anyhow::Result<()> {
-        todo!("write this test");
+        todo!("finish this test after writing serialize test");
+        let mut buf = Vec::new();
+
+        let header = Header {
+            id: 7,
+            is_response: true,
+            opcode: Opcode::StandardQuery,
+            is_authoritative_answer: true,
+            is_truncated: false,
+            is_recursion_desired: false,
+            is_recursion_available: true,
+            response_code: ResponseCode::NoError,
+            question_count: 2,
+            answer_count: 2,
+            authority_count: 2,
+            additional_count: 2,
+        };
+        buf.append(&mut header.serialize());
+
+        let question1 = Question {
+            name: "google.com.".to_string(),
+            r#type: QuestionType::RrType(rr::Type::A),
+            class: QuestionClass::RrClass(rr::Class::IN)
+        };
+        let question2 = Question {
+            name: "amazon.com.".to_string(),
+            r#type: QuestionType::RrType(rr::Type::A),
+            class: QuestionClass::RrClass(rr::Class::IN)
+        };
+        buf.append(&mut question1.serialize()?);
+        buf.append(&mut question2.serialize()?);
+
+        let answer1 = rr::ResourceRecord {
+            name: "google.com.".to_string(),
+            r#type: rr::Type::A,
+            class: rr::Class::IN,
+            ttl: 100,
+            data: Some(vec![113, 234, 56, 89]),
+        };
+        let answer2 = rr::ResourceRecord {
+            name: "amazon.com.".to_string(),
+            r#type: rr::Type::A,
+            class: rr::Class::IN,
+            ttl: 100,
+            data: Some(vec![85, 107, 21, 77]),
+        };
+        buf.append(&mut answer1.serialize()?);
+        
         Ok(())
     }
 
@@ -557,7 +582,37 @@ mod test {
 
     #[test]
     fn serialize_header() {
-        todo!("write this test");
+        let header = Header {
+            id: 7,
+            is_response: true,
+            opcode: Opcode::StandardQuery,
+            is_authoritative_answer: true,
+            is_truncated: false,
+            is_recursion_desired: false,
+            is_recursion_available: true,
+            response_code: ResponseCode::NoError,
+            question_count: 2,
+            answer_count: 2,
+            authority_count: 2,
+            additional_count: 2,
+        };
+        let buf = header.serialize();
+
+        let mut cursor = buf.as_slice();
+        assert_eq!(cursor.get_u16(), header.id);
+        let bitfields = cursor.get_u16();
+        assert_eq!((bitfields >> 15) & 1 != 0, header.is_response);
+        assert_eq!((bitfields >> 11) & 0xf, header.opcode.serialize());
+        assert_eq!((bitfields >> 10) & 1 != 0, header.is_authoritative_answer);
+        assert_eq!((bitfields >> 9) & 1 != 0, header.is_truncated);
+        assert_eq!((bitfields >> 8) & 1 != 0, header.is_recursion_desired);
+        assert_eq!((bitfields >> 7) & 1 != 0, header.is_recursion_available);
+        assert_eq!((bitfields >> 4) & 7, 0);
+        assert_eq!(bitfields & 0xf, header.response_code.serialize());
+        assert_eq!(cursor.get_u16(), header.question_count as u16);
+        assert_eq!(cursor.get_u16(), header.answer_count as u16);
+        assert_eq!(cursor.get_u16(), header.authority_count as u16);
+        assert_eq!(cursor.get_u16(), header.additional_count as u16);
     }
 
     #[test]
@@ -595,6 +650,6 @@ mod test {
 
     #[test]
     fn serialize_message() {
-        todo!("write this test");
+        todo!("write this test first");
     }
 }
