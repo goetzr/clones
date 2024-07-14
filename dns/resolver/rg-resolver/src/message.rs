@@ -39,6 +39,7 @@ impl Message {
             additionals.push(additional);
         }
 
+        *msg = unparsed;
         let message = Message {
             header,
             questions,
@@ -48,7 +49,27 @@ impl Message {
         };
         Ok(message)
     }
+
+    fn serialize(&self) -> anyhow::Result<Vec<u8>> {
+        let mut vec = Vec::new();
+        vec.append(&mut self.header.serialize());
+        for question in &self.questions {
+            vec.append(&mut question.serialize()?);
+        }
+        for answer in &self.answers {
+            vec.append(&mut answer.serialize()?);
+        }
+        for authority in &self.authorities {
+            vec.append(&mut authority.serialize()?);
+        }
+        for additional in &self.additionals {
+            vec.append(&mut additional.serialize()?);
+        }
+        Ok(vec)
+    }
 }
+
+#[derive(Clone, Debug, PartialEq)]
 pub struct Header {
     id: u16,
     is_response: bool,
@@ -145,8 +166,10 @@ enum Opcode {
 }
 
 impl Opcode {
+    const BIT_POS: usize = 11;
+
     fn parse(bitfields: u16) -> anyhow::Result<Self> {
-        match (bitfields >> 11) & 0xf {
+        match (bitfields >> Self::BIT_POS) & 0xf {
             0 => Ok(Opcode::StandardQuery),
             1 => Ok(Opcode::InverseQuery),
             2 => Ok(Opcode::ServerStatusRequest),
@@ -155,7 +178,6 @@ impl Opcode {
     }
 
     fn serialize(&self) -> u16 {
-        panic!("Make this return the shifted result");
         use Opcode::*;
         match self {
             StandardQuery => 0,
@@ -189,7 +211,6 @@ impl ResponseCode {
     }
 
     fn serialize(&self) -> u16 {
-        panic!("Make this return the shifted result");
         use ResponseCode::*;
         match self {
             NoError => 0,
@@ -202,6 +223,7 @@ impl ResponseCode {
     }
 }
 
+#[derive(Clone, Debug, PartialEq)]
 pub struct Question {
     name: String,
     r#type: QuestionType,
@@ -341,11 +363,20 @@ mod test {
 
     #[test]
     fn parse_opcode() -> anyhow::Result<()> {
-        assert_eq!(Opcode::parse(Opcode::StandardQuery.serialize())?, Opcode::StandardQuery);
-        assert_eq!(Opcode::parse(Opcode::InverseQuery.serialize())?, Opcode::InverseQuery);
-        assert_eq!(Opcode::parse(Opcode::ServerStatusRequest.serialize())?, Opcode::ServerStatusRequest);
+        assert_eq!(
+            Opcode::parse(Opcode::StandardQuery.serialize() << Opcode::BIT_POS)?,
+            Opcode::StandardQuery
+        );
+        assert_eq!(
+            Opcode::parse(Opcode::InverseQuery.serialize() << Opcode::BIT_POS)?,
+            Opcode::InverseQuery
+        );
+        assert_eq!(
+            Opcode::parse(Opcode::ServerStatusRequest.serialize() << Opcode::BIT_POS)?,
+            Opcode::ServerStatusRequest
+        );
 
-        let bitfields = 3 << 11;
+        let bitfields = 3 << Opcode::BIT_POS;
         assert!(Opcode::parse(bitfields).is_err());
 
         Ok(())
@@ -353,15 +384,30 @@ mod test {
 
     #[test]
     fn parse_response_code() -> anyhow::Result<()> {
-        assert_eq!(ResponseCode::parse(ResponseCode::NoError.serialize())?, ResponseCode::NoError);
-        assert_eq!(ResponseCode::parse(ResponseCode::FormatError.serialize())?, ResponseCode::FormatError);
-        assert_eq!(ResponseCode::parse(ResponseCode::ServerFailure.serialize())?, ResponseCode::ServerFailure);
-        assert_eq!(ResponseCode::parse(ResponseCode::NameError.serialize())?, ResponseCode::NameError);
+        assert_eq!(
+            ResponseCode::parse(ResponseCode::NoError.serialize())?,
+            ResponseCode::NoError
+        );
+        assert_eq!(
+            ResponseCode::parse(ResponseCode::FormatError.serialize())?,
+            ResponseCode::FormatError
+        );
+        assert_eq!(
+            ResponseCode::parse(ResponseCode::ServerFailure.serialize())?,
+            ResponseCode::ServerFailure
+        );
+        assert_eq!(
+            ResponseCode::parse(ResponseCode::NameError.serialize())?,
+            ResponseCode::NameError
+        );
         assert_eq!(
             ResponseCode::parse(ResponseCode::NotImplemented.serialize())?,
             ResponseCode::NotImplemented
         );
-        assert_eq!(ResponseCode::parse(ResponseCode::Refused.serialize())?, ResponseCode::Refused);
+        assert_eq!(
+            ResponseCode::parse(ResponseCode::Refused.serialize())?,
+            ResponseCode::Refused
+        );
 
         let bitfields = 6;
         assert!(ResponseCode::parse(bitfields).is_err());
@@ -393,16 +439,25 @@ mod test {
         assert_eq!(parsed_hdr.id, header.id);
         assert_eq!(parsed_hdr.is_response, header.is_response);
         assert_eq!(parsed_hdr.opcode, header.opcode);
-        assert_eq!(parsed_hdr.is_authoritative_answer, header.is_authoritative_answer);
+        assert_eq!(
+            parsed_hdr.is_authoritative_answer,
+            header.is_authoritative_answer
+        );
         assert_eq!(parsed_hdr.is_truncated, header.is_truncated);
         assert_eq!(parsed_hdr.is_recursion_desired, header.is_recursion_desired);
-        assert_eq!(parsed_hdr.is_recursion_available, header.is_recursion_available);
+        assert_eq!(
+            parsed_hdr.is_recursion_available,
+            header.is_recursion_available
+        );
         assert_eq!(parsed_hdr.response_code, header.response_code);
         assert_eq!(parsed_hdr.question_count, header.question_count);
         assert_eq!(parsed_hdr.answer_count, header.answer_count);
         assert_eq!(parsed_hdr.authority_count, header.authority_count);
         assert_eq!(parsed_hdr.additional_count, header.additional_count);
-        assert_eq!(unsafe { unparsed.as_ptr().offset_from(buf.as_ptr()) as usize }, buf.len());
+        assert_eq!(
+            unsafe { unparsed.as_ptr().offset_from(buf.as_ptr()) as usize },
+            buf.len()
+        );
 
         let mut unparsed = &buf[..1];
         assert!(Header::parse(&mut unparsed).is_err());
@@ -438,7 +493,10 @@ mod test {
                 buf.put_u16($result.serialize());
                 let mut unparsed = &buf[..];
                 assert_eq!(QuestionType::parse(&mut unparsed)?, $result);
-                assert_eq!(unsafe { unparsed.as_ptr().offset_from(buf.as_ptr()) as usize }, buf.len());
+                assert_eq!(
+                    unsafe { unparsed.as_ptr().offset_from(buf.as_ptr()) as usize },
+                    buf.len()
+                );
             };
         }
 
@@ -469,13 +527,19 @@ mod test {
             QuestionClass::parse(&mut unparsed)?,
             QuestionClass::RrClass(rr::Class::IN)
         );
-        assert_eq!(unsafe { unparsed.as_ptr().offset_from(buf.as_ptr()) as usize }, buf.len());
+        assert_eq!(
+            unsafe { unparsed.as_ptr().offset_from(buf.as_ptr()) as usize },
+            buf.len()
+        );
 
         let mut buf = Vec::new();
         buf.put_u16(QuestionClass::Any.serialize());
         let mut unparsed = &buf[..];
         assert_eq!(QuestionClass::parse(&mut unparsed)?, QuestionClass::Any);
-        assert_eq!(unsafe { unparsed.as_ptr().offset_from(buf.as_ptr()) as usize }, buf.len());
+        assert_eq!(
+            unsafe { unparsed.as_ptr().offset_from(buf.as_ptr()) as usize },
+            buf.len()
+        );
 
         let mut buf = Vec::new();
         buf.put_u16(256);
@@ -505,7 +569,10 @@ mod test {
         assert_eq!(question_parsed.name, question.name);
         assert_eq!(question_parsed.r#type, question.r#type);
         assert_eq!(question_parsed.class, question.class);
-        assert_eq!(unsafe { unparsed.as_ptr().offset_from(buf.as_ptr()) as usize }, buf.len());
+        assert_eq!(
+            unsafe { unparsed.as_ptr().offset_from(buf.as_ptr()) as usize },
+            buf.len()
+        );
 
         Ok(())
     }
@@ -534,12 +601,12 @@ mod test {
         let question1 = Question {
             name: "google.com.".to_string(),
             r#type: QuestionType::RrType(rr::Type::A),
-            class: QuestionClass::RrClass(rr::Class::IN)
+            class: QuestionClass::RrClass(rr::Class::IN),
         };
         let question2 = Question {
             name: "amazon.com.".to_string(),
             r#type: QuestionType::RrType(rr::Type::A),
-            class: QuestionClass::RrClass(rr::Class::IN)
+            class: QuestionClass::RrClass(rr::Class::IN),
         };
         buf.append(&mut question1.serialize()?);
         buf.append(&mut question2.serialize()?);
@@ -559,7 +626,7 @@ mod test {
             data: Some(vec![85, 107, 21, 77]),
         };
         buf.append(&mut answer1.serialize()?);
-        
+
         Ok(())
     }
 
@@ -649,7 +716,106 @@ mod test {
     }
 
     #[test]
-    fn serialize_message() {
-        todo!("write this test first");
+    fn serialize_message() -> anyhow::Result<()> {
+        let header = Header {
+            id: 7,
+            is_response: true,
+            opcode: Opcode::StandardQuery,
+            is_authoritative_answer: true,
+            is_truncated: false,
+            is_recursion_desired: false,
+            is_recursion_available: true,
+            response_code: ResponseCode::NoError,
+            question_count: 2,
+            answer_count: 2,
+            authority_count: 2,
+            additional_count: 2,
+        };
+
+        let question1 = Question {
+            name: "google.com.".to_string(),
+            r#type: QuestionType::RrType(rr::Type::A),
+            class: QuestionClass::RrClass(rr::Class::IN),
+        };
+        let question2 = Question {
+            name: "amazon.com.".to_string(),
+            r#type: QuestionType::RrType(rr::Type::A),
+            class: QuestionClass::RrClass(rr::Class::IN),
+        };
+        let questions = vec![question1, question2];
+
+        let answer1 = rr::ResourceRecord {
+            name: "google.com.".to_string(),
+            r#type: rr::Type::A,
+            class: rr::Class::IN,
+            ttl: 100,
+            data: Some(vec![113, 234, 56, 89]),
+        };
+        let answer2 = rr::ResourceRecord {
+            name: "amazon.com.".to_string(),
+            r#type: rr::Type::A,
+            class: rr::Class::IN,
+            ttl: 100,
+            data: Some(vec![85, 107, 21, 77]),
+        };
+        let answers = vec![answer1, answer2];
+
+        // * Use uncompressed names since only implementing the resolver at this time.
+        // * If at some point a name server is implemented, use compressed names.
+        let authority1 = rr::ResourceRecord {
+            name: "google.com.".to_string(),
+            r#type: rr::Type::NS,
+            class: rr::Class::IN,
+            ttl: 250,
+            data: Some(name::serialize("ns.google.com.", None)?),
+        };
+        let authority2 = rr::ResourceRecord {
+            name: "amazon.com.".to_string(),
+            r#type: rr::Type::NS,
+            class: rr::Class::IN,
+            ttl: 250,
+            data: Some(name::serialize("ns.amazon.com.", None)?),
+        };
+        let authorities = vec![authority1, authority2];
+
+        let additional1 = rr::ResourceRecord {
+            name: "google.com.".to_string(),
+            r#type: rr::Type::CNAME,
+            class: rr::Class::IN,
+            ttl: 150,
+            data: Some(name::serialize("www.google.com.", None)?),
+        };
+        let additional2 = rr::ResourceRecord {
+            name: "amazon.com.".to_string(),
+            r#type: rr::Type::CNAME,
+            class: rr::Class::IN,
+            ttl: 150,
+            data: Some(name::serialize("www.amazon.com.", None)?),
+        };
+        let additionals = vec![additional1, additional2];
+
+        let message = Message {
+            header: header.clone(),
+            questions: questions.clone(),
+            answers: answers.clone(),
+            authorities: authorities.clone(),
+            additionals: additionals.clone(),
+        };
+        let buf = message.serialize()?;
+
+        let mut unparsed = buf.as_slice();
+        let parsed_msg = Message::parse(&mut unparsed)?;
+
+        assert_eq!(parsed_msg.header, header);
+        assert_eq!(parsed_msg.questions, questions);
+        assert_eq!(parsed_msg.answers, answers);
+        assert_eq!(parsed_msg.authorities, authorities);
+        assert_eq!(parsed_msg.additionals, additionals);
+        assert_eq!(
+            unsafe { unparsed.as_ptr().offset_from(buf.as_ptr()) as usize },
+            buf.len()
+        );
+
+        Ok(())
     }
 }

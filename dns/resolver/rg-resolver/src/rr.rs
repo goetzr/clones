@@ -1,6 +1,7 @@
 use crate::name;
 use bytes::{Buf, BufMut};
 
+#[derive(Clone, Debug, PartialEq)]
 pub struct ResourceRecord {
     pub name: String,
     pub r#type: Type,
@@ -65,7 +66,10 @@ impl ResourceRecord {
         buf.put_u16(self.class.serialize());
         buf.put_u32(self.ttl);
         if let Some(data) = self.data.as_ref() {
+            buf.put_u16(data.len() as u16);
             buf.append(&mut data.clone());
+        } else {
+            buf.put_u16(0);
         }
         Ok(buf)
     }
@@ -287,6 +291,7 @@ mod test {
 
     #[test]
     fn parse_rr() -> anyhow::Result<()> {
+        todo!("implement this in terms of ResourceRecord::serialize");
         let mut msg = Vec::new();
         let name = "google.com.";
         let mut name_ser = name::serialize(name, None)?;
@@ -368,6 +373,7 @@ mod test {
         assert_eq!(cursor.get_u16(), rr.r#type.serialize());
         assert_eq!(cursor.get_u16(), rr.class.serialize());
         assert_eq!(cursor.get_u32(), rr.ttl);
+        assert_eq!(cursor.get_u16() as usize, rr.data.as_ref().unwrap().len());
         assert_eq!(cursor, rr.data.unwrap());
 
         Ok(())
