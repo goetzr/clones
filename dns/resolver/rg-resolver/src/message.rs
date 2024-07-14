@@ -115,6 +115,26 @@ impl Header {
         };
         Ok(header)
     }
+
+    fn serialize(&self) -> Vec<u8> {
+        let mut buf = Vec::new();
+
+        buf.put_u16(self.id);
+        let bitfields: u16 = (self.is_response as u16) << 15
+            | (self.opcode.serialize() as u16) << 11
+            | (self.is_authoritative_answer as u16) << 10
+            | (self.is_truncated as u16) << 9
+            | (self.is_recursion_desired as u16) << 8
+            | (self.is_recursion_available as u16) << 7
+            | self.response_code.serialize() as u16;
+        buf.put_u16(bitfields);
+        buf.put_u16(self.question_count as u16);
+        buf.put_u16(self.answer_count as u16);
+        buf.put_u16(self.authority_count as u16);
+        buf.put_u16(self.additional_count as u16);
+
+        buf
+    }
 }
 
 #[derive(Copy, Clone, Debug, PartialEq)]
@@ -513,7 +533,10 @@ mod test {
     }
 
     #[test]
-
+    fn parse_message() -> anyhow::Result<()> {
+        todo!("write this test");
+        Ok(())
+    }
 
     #[test]
     fn serialize_opcode() {
@@ -533,6 +556,11 @@ mod test {
     }
 
     #[test]
+    fn serialize_header() {
+        todo!("write this test");
+    }
+
+    #[test]
     fn serialize_question_type() {
         assert_eq!(QuestionType::RrType(rr::Type::CNAME).serialize(), 5);
         assert_eq!(QuestionType::Afxr.serialize(), 252);
@@ -549,19 +577,24 @@ mod test {
 
     #[test]
     fn serialize_question() -> anyhow::Result<()> {
-        let name = "google.com.".to_string();
-        let r#type = QuestionType::RrType(rr::Type::CNAME);
-        let class = QuestionClass::RrClass(rr::Class::IN);
-        let question = Question { name: name.clone(), r#type, class };
-
+        let question = Question {
+            name: "google.com.".to_string(),
+            r#type: QuestionType::RrType(rr::Type::CNAME),
+            class: QuestionClass::RrClass(rr::Class::IN),
+        };
         let buf = question.serialize()?;
         // * The question section holds the first name in the message, so it can't be compressed.
-        let name_ser = name::serialize(&name, None)?;
+        let name_ser = name::serialize(&question.name, None)?;
         assert_eq!(&buf[..name_ser.len()], name_ser);
         let mut cursor = &buf[name_ser.len()..];
-        assert_eq!(cursor.get_u16(), r#type.serialize());
-        assert_eq!(cursor.get_u16(), class.serialize());
+        assert_eq!(cursor.get_u16(), question.r#type.serialize());
+        assert_eq!(cursor.get_u16(), question.class.serialize());
 
         Ok(())
+    }
+
+    #[test]
+    fn serialize_message() {
+        todo!("write this test");
     }
 }
