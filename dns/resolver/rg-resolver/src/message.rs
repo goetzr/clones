@@ -579,9 +579,6 @@ mod test {
 
     #[test]
     fn parse_message() -> anyhow::Result<()> {
-        todo!("finish this test after writing serialize test");
-        let mut buf = Vec::new();
-
         let header = Header {
             id: 7,
             is_response: true,
@@ -596,7 +593,6 @@ mod test {
             authority_count: 2,
             additional_count: 2,
         };
-        buf.append(&mut header.serialize());
 
         let question1 = Question {
             name: "google.com.".to_string(),
@@ -608,9 +604,10 @@ mod test {
             r#type: QuestionType::RrType(rr::Type::A),
             class: QuestionClass::RrClass(rr::Class::IN),
         };
-        buf.append(&mut question1.serialize()?);
-        buf.append(&mut question2.serialize()?);
+        let questions = vec![question1, question2];
 
+        // * Use uncompressed names since only implementing the resolver at this time.
+        // * If at some point a name server is implemented, use compressed names.
         let answer1 = rr::ResourceRecord {
             name: "google.com.".to_string(),
             r#type: rr::Type::A,
@@ -625,7 +622,61 @@ mod test {
             ttl: 100,
             data: Some(vec![85, 107, 21, 77]),
         };
-        buf.append(&mut answer1.serialize()?);
+        let answers = vec![answer1, answer2];
+
+        let authority1 = rr::ResourceRecord {
+            name: "google.com.".to_string(),
+            r#type: rr::Type::NS,
+            class: rr::Class::IN,
+            ttl: 250,
+            data: Some(name::serialize("ns.google.com.", None)?),
+        };
+        let authority2 = rr::ResourceRecord {
+            name: "amazon.com.".to_string(),
+            r#type: rr::Type::NS,
+            class: rr::Class::IN,
+            ttl: 250,
+            data: Some(name::serialize("ns.amazon.com.", None)?),
+        };
+        let authorities = vec![authority1, authority2];
+
+        let additional1 = rr::ResourceRecord {
+            name: "google.com.".to_string(),
+            r#type: rr::Type::CNAME,
+            class: rr::Class::IN,
+            ttl: 150,
+            data: Some(name::serialize("www.google.com.", None)?),
+        };
+        let additional2 = rr::ResourceRecord {
+            name: "amazon.com.".to_string(),
+            r#type: rr::Type::CNAME,
+            class: rr::Class::IN,
+            ttl: 150,
+            data: Some(name::serialize("www.amazon.com.", None)?),
+        };
+        let additionals = vec![additional1, additional2];
+
+        let message = Message {
+            header: header.clone(),
+            questions: questions.clone(),
+            answers: answers.clone(),
+            authorities: authorities.clone(),
+            additionals: additionals.clone(),
+        };
+        let buf = message.serialize()?;
+
+        let mut unparsed = buf.as_slice();
+        let parsed_msg = Message::parse(&mut unparsed)?;
+
+        assert_eq!(parsed_msg.header, message.header);
+        assert_eq!(parsed_msg.questions, message.questions);
+        assert_eq!(parsed_msg.answers, message.answers);
+        assert_eq!(parsed_msg.authorities, message.authorities);
+        assert_eq!(parsed_msg.additionals, message.additionals);
+        assert_eq!(
+            unsafe { unparsed.as_ptr().offset_from(buf.as_ptr()) as usize },
+            buf.len()
+        );
 
         Ok(())
     }
@@ -744,6 +795,8 @@ mod test {
         };
         let questions = vec![question1, question2];
 
+        // * Use uncompressed names since only implementing the resolver at this time.
+        // * If at some point a name server is implemented, use compressed names.
         let answer1 = rr::ResourceRecord {
             name: "google.com.".to_string(),
             r#type: rr::Type::A,
@@ -760,8 +813,6 @@ mod test {
         };
         let answers = vec![answer1, answer2];
 
-        // * Use uncompressed names since only implementing the resolver at this time.
-        // * If at some point a name server is implemented, use compressed names.
         let authority1 = rr::ResourceRecord {
             name: "google.com.".to_string(),
             r#type: rr::Type::NS,

@@ -291,36 +291,25 @@ mod test {
 
     #[test]
     fn parse_rr() -> anyhow::Result<()> {
-        todo!("implement this in terms of ResourceRecord::serialize");
-        let mut msg = Vec::new();
-        let name = "google.com.";
-        let mut name_ser = name::serialize(name, None)?;
-        msg.append(&mut name_ser);
-        let r#type = Type::NS;
-        msg.put_u16(2); // NS
-        let class = Class::IN;
-        msg.put_u16(1); // IN
-        let ttl = 12;
-        msg.put_u32(ttl);
-        let data = vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
-        msg.put_u16(data.len() as u16);
-        let mut data_copy = data.clone();
-        msg.append(&mut data_copy);
+        let rr = ResourceRecord {
+            name: "google.com.".to_string(),
+            r#type: Type::A,
+            class: Class::IN,
+            ttl: 100,
+            data: Some(vec![43, 56, 121, 92]),
+        };
+        let buf = rr.serialize()?;
 
-        let mut unparsed = &msg[..];
-        let parse_start = unparsed;
-        let rr = ResourceRecord::parse(&msg[..], &mut unparsed)?;
-        assert_eq!(rr.name, name);
-        assert_eq!(rr.r#type, r#type);
-        assert_eq!(rr.class, class);
-        assert_eq!(rr.ttl, ttl);
-        assert!(match rr.data {
-            Some(d) if d == data => true,
-            _ => false,
-        });
+        let mut unparsed = &buf[..];
+        let parsed_rr = ResourceRecord::parse(buf.as_slice(), &mut unparsed)?;
+        assert_eq!(parsed_rr.name, rr.name);
+        assert_eq!(parsed_rr.r#type, rr.r#type);
+        assert_eq!(parsed_rr.class, rr.class);
+        assert_eq!(parsed_rr.ttl, rr.ttl);
+        assert_eq!(parsed_rr.data.unwrap(), rr.data.unwrap());
         assert_eq!(
-            unsafe { unparsed.as_ptr().offset_from(parse_start.as_ptr()) },
-            12 + 2 + 2 + 4 + 2 + 10
+            unsafe { unparsed.as_ptr().offset_from(buf.as_ptr()) as usize },
+            buf.len()
         );
 
         Ok(())
@@ -363,7 +352,7 @@ mod test {
             r#type: Type::A,
             class: Class::IN,
             ttl: 100,
-            data: Some(vec![43,56,121,92]),
+            data: Some(vec![43, 56, 121, 92]),
         };
 
         let buf = rr.serialize()?;

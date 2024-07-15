@@ -5,6 +5,7 @@ use tracing_subscriber;
 mod message;
 mod rr;
 mod name;
+mod net;
 
 fn main() {
     if let Err(e) = run() {
