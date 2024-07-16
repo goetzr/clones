@@ -1,6 +1,38 @@
 use crate::{name, rr};
 use bytes::{Buf, BufMut};
 
+pub fn address_query(name: &str) -> Message {
+    // TODO: Eventually need an auto-incrementing ID.
+    let header = Header {
+        id: 1,
+        is_response: false,
+        opcode: Opcode::StandardQuery,
+        is_authoritative_answer: false,
+        is_truncated: false,
+        is_recursion_desired: false,
+        is_recursion_available: false,
+        response_code: ResponseCode::NoError,
+        question_count: 1,
+        answer_count: 0,
+        authority_count: 0,
+        additional_count: 0
+    };
+    // TODO: Eventually add AAAA question. Also look for other question/RR types.
+    // TODO: Don't forget to update tests if more are added.
+    let question = Question {
+        name: name.to_string(),
+        r#type: QuestionType::RrType(rr::Type::A),
+        class: QuestionClass::RrClass(rr::Class::IN),
+    };
+    Message {
+        header,
+        questions: vec![question],
+        answers: Vec::new(),
+        authorities: Vec::new(),
+        additionals: Vec::new(),
+    }
+}
+
 pub struct Message {
     header: Header,
     questions: Vec<Question>,
@@ -50,7 +82,7 @@ impl Message {
         Ok(message)
     }
 
-    fn serialize(&self) -> anyhow::Result<Vec<u8>> {
+    pub fn serialize(&self) -> anyhow::Result<Vec<u8>> {
         let mut vec = Vec::new();
         vec.append(&mut self.header.serialize());
         for question in &self.questions {
