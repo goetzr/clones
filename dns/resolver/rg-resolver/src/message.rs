@@ -33,6 +33,7 @@ pub fn address_query(name: &str) -> Message {
     }
 }
 
+#[derive(Debug)]
 pub struct Message {
     header: Header,
     questions: Vec<Question>,

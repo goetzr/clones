@@ -20,7 +20,12 @@ fn run() -> anyhow::Result<()> {
     let Some(domain_name) = env::args().skip(1).next() else {
         anyhow::bail!("must specify domain name".to_string());
     };
+
     info!("Querying address(es) for domain name {domain_name}...");
+    let query = message::address_query(&domain_name);
+    info!("Sending query {:#?}", query);
+    let response = net::tx_then_rx_udp(&query);
+    info!("Got response: {:#?}", response);
 
     Ok(())
 }

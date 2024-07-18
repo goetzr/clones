@@ -1,5 +1,6 @@
 use crate::message::Message;
 use std::net::{Ipv4Addr, SocketAddrV4, UdpSocket};
+use tracing::info;
 
 const UDP_PORT: u16 = 53;
 
@@ -8,11 +9,15 @@ pub fn tx_then_rx_udp(msg: &Message) -> anyhow::Result<Message> {
     // ! If the size is > 512 bytes, truncate the message and set the
     // ! TC bit in the header.
 
-    let sock = UdpSocket::bind(SocketAddrV4::new(Ipv4Addr::LOCALHOST, UDP_PORT))?;
+    let sock = UdpSocket::bind(SocketAddrV4::new(Ipv4Addr::UNSPECIFIED, 0))?;
+    info!("Socket bound");
     sock.connect(get_nameserver_addr()?)?;
+    info!("Socket connected");
     let _ = sock.send(msg.serialize()?.as_slice())?;
-    let mut buf = Vec::new();
-    let _ = sock.recv(buf.as_mut_slice())?;
+    info!("Data sent");
+    let mut buf = [0_u8; 512];
+    let size = sock.recv(&mut buf)?;
+    info!("Received {size} byte response");
     let mut buf = &buf[..];
     Ok(Message::parse(&mut buf)?)
 }

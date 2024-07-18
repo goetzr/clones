@@ -1,6 +1,8 @@
 use crate::name;
 use bytes::{Buf, BufMut};
 
+// TODO: Write a custom Debug implementation that interprets the data field specially for
+// TODO: specific RR types (A, NS).
 #[derive(Clone, Debug, PartialEq)]
 pub struct ResourceRecord {
     pub name: String,
