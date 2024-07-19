@@ -1,9 +1,10 @@
 use crate::name;
 use bytes::{Buf, BufMut};
+use std::fmt;
 
 // TODO: Write a custom Debug implementation that interprets the data field specially for
 // TODO: specific RR types (A, NS).
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, PartialEq)]
 pub struct ResourceRecord {
     pub name: String,
     pub r#type: Type,
@@ -19,6 +20,15 @@ impl ResourceRecord {
         let r#type = Type::parse(unparsed)?;
         let class = Class::parse(unparsed)?;
         let ttl = Self::parse_ttl(unparsed)?;
+        // TODO: Need to parse the type-specific data at this point.
+        // TODO: msg is required if we need to parse any names.
+        // TODO: Maybe the best thing to do it combine the r#type field and the data field
+        // TODO: into a single data field that's a type-based enum:
+        // TODO: enum Data {
+        // TODO:    A(Ipv4Addr),
+        // TODO:    NS(String),
+        // TODO:    ...
+        // TODO: }
         let data = Self::parse_data(unparsed)?;
 
         let rr = ResourceRecord {
@@ -74,6 +84,34 @@ impl ResourceRecord {
             buf.put_u16(0);
         }
         Ok(buf)
+    }
+}
+
+impl fmt::Debug for ResourceRecord {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        unimplemented!("I believe this Debug implementation needs removed");
+        let mut dbg_struct = f.debug_struct("ResourceRecord");
+        dbg_struct.field("name", &self.name);
+        dbg_struct.field("type", &self.r#type);
+        dbg_struct.field("class", &self.class);
+        dbg_struct.field("ttl", &self.ttl);
+        if let Some(ref data) = self.data {
+            use Type::*;
+            use std::net::Ipv4Addr;
+            match self.r#type {
+                A if data.len() == 4 => {
+                    let ip = Ipv4Addr::new(data[0], data[1], data[2], data[3]);
+                    dbg_struct.field("data", &ip);
+                }
+                // NS => {
+                //     let name = name::parse()
+                // }
+                _ => {
+                    ()
+                }
+            };
+        }
+        dbg_struct.finish()
     }
 }
 
