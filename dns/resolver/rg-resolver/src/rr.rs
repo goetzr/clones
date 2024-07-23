@@ -1,6 +1,6 @@
 use crate::name;
 use bytes::{Buf, BufMut};
-use std::fmt;
+use std::{fmt, net::Ipv4Addr};
 
 // TODO: Write a custom Debug implementation that interprets the data field specially for
 // TODO: specific RR types (A, NS).
@@ -9,7 +9,7 @@ pub struct ResourceRecord {
     pub name: String,
     pub r#type: Type,
     pub class: Class,
-    pub ttl: u32,
+    pub ttl: i32,
     pub data: Option<Vec<u8>>,
 }
 
@@ -115,24 +115,46 @@ impl fmt::Debug for ResourceRecord {
     }
 }
 
+// TODO: Write test stubs for parsing these data types.
 #[derive(Copy, Clone, Debug, PartialEq)]
-pub enum Type {
-    A,
-    NS,
-    MD,
-    MF,
-    CNAME,
-    SOA,
-    MB,
-    MG,
-    MR,
-    NULL,
-    WKS,
-    PTR,
-    HINFO,
-    MINFO,
-    MX,
-    TXT,
+pub enum Data {
+    A(Ipv4Addr),
+    NS(String),
+    MD(String),
+    MF(String),
+    CNAME(String),
+    SOA {
+        mname: String,
+        rname: String,
+        serial: u32,
+        refresh: u32,
+        retry: u32,
+        expire: u32,
+        minimium: i32,
+    },
+    MB(String),
+    MG(String),
+    MR(String),
+    NULL(Vec<u8>),      // TODO: Length must not exceed 65535
+    WKS {
+        address: Ipv4Addr,
+        protocol: u8,
+        bit_map: Vec<u8>,
+    },
+    PTR(String),
+    HINFO {
+        cpu: String,    // TODO: Length of each must not exceed 255
+        os: String,
+    },
+    MINFO {
+        rmailbx: String,
+        emailbx: String,
+    },
+    MX {
+        preference: i16,
+        exchange: String,
+    },
+    TXT(Vec<String>),    // TODO: Length must not exceed 255
 }
 
 impl Type {

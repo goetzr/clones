@@ -38,7 +38,6 @@ pub fn parse<'a>(msg: &'a [u8], unparsed: &mut &'a [u8]) -> anyhow::Result<Strin
         } else {
             anyhow::bail!("incomplete name")
         };
-        debug!(len, "Peeked length byte");
         if len == 0 {
             // Advance past the length byte we only peeked at.
             buf.advance(1);
@@ -66,7 +65,7 @@ pub fn parse<'a>(msg: &'a [u8], unparsed: &mut &'a [u8]) -> anyhow::Result<Strin
                 *unparsed = buf;
                 input_slice_advanced = true;
             }
-            // Continue parsing the name starting at the pointed to location earlier in the message.
+            // Continue parsing the name starting at the pointed to location ——in the message.
             buf = &msg[offset..];
             continue;
         }
@@ -196,5 +195,57 @@ mod test {
         );
 
         Ok(())
+    }
+
+    #[test]
+    fn incomplete_name() {
+        // Does not end in 0 byte.
+        todo!("write this test");
+    }
+
+    #[test]
+    fn use_reserved_pointer_bits() {
+        todo!("write this test");
+    }
+
+    #[test]
+    fn incomplete_pointer() {
+        // Less than 2 bytes available for pointer offset.
+        todo!("write this test");
+    }
+
+    #[test]
+    fn pointer_to_later_in_msg() {
+        todo!("write this test");
+    }
+
+    #[test]
+    fn pointer_outside_msg() {
+        todo!("write this test");
+    }
+
+    #[test]
+    fn incomplete_label() {
+        todo!("write this test");
+    }
+
+    #[test]
+    fn label_invalid_utf8() {
+        todo!("write this test");
+    }
+
+    #[test]
+    fn label_not_ascii() {
+        todo!("write this test");
+    }
+
+    #[test]
+    fn label_too_long() {
+        todo!("write this test");
+    }
+
+    #[test]
+    fn name_too_long() {
+        todo!("write this test");
     }
 }
