@@ -1,16 +1,16 @@
 use crate::name;
 use bytes::{Buf, BufMut};
 use std::{fmt, net::Ipv4Addr};
+use anyhow::Context;
 
 // TODO: Write a custom Debug implementation that interprets the data field specially for
 // TODO: specific RR types (A, NS).
 #[derive(Clone, PartialEq)]
 pub struct ResourceRecord {
     pub name: String,
-    pub r#type: Type,
     pub class: Class,
     pub ttl: i32,
-    pub data: Option<Vec<u8>>,
+    pub data: Data,
 }
 
 impl ResourceRecord {
@@ -130,7 +130,7 @@ pub enum Data {
         refresh: u32,
         retry: u32,
         expire: u32,
-        minimium: i32,
+        minimum: i32,
     },
     MB(String),
     MG(String),
@@ -157,28 +157,129 @@ pub enum Data {
     TXT(Vec<String>),    // TODO: Length must not exceed 255
 }
 
-impl Type {
-    pub fn parse(unparsed: &mut &[u8]) -> anyhow::Result<Self> {
+impl Data {
+    pub fn parse(msg: &[u8], unparsed: &mut &[u8], r#type: u16) -> anyhow::Result<Self> {
         if unparsed.remaining() < 2 {
-            anyhow::bail!("incomplete type");
+            anyhow::bail!("incomplete data length");
         }
-        match unparsed.get_u16() {
-            1 => Ok(Type::A),
-            2 => Ok(Type::NS),
-            3 => Ok(Type::MD),
-            4 => Ok(Type::MF),
-            5 => Ok(Type::CNAME),
-            6 => Ok(Type::SOA),
-            7 => Ok(Type::MB),
-            8 => Ok(Type::MG),
-            9 => Ok(Type::MR),
-            10 => Ok(Type::NULL),
-            11 => Ok(Type::WKS),
-            12 => Ok(Type::PTR),
-            13 => Ok(Type::HINFO),
-            14 => Ok(Type::MINFO),
-            15 => Ok(Type::MX),
-            16 => Ok(Type::TXT),
+        let data_len = unparsed.get_u16() as usize;
+        if unparsed.remaining() < data_len {
+            anyhow::bail!("incomplete data");
+        }
+        let data = *unparsed;
+        unparsed.advance(data_len);
+        let mut data = &data[..];
+
+        use Data::*;
+        match r#type {
+            1 => {
+                if data_len != 4 {
+                    anyhow::bail!("type A RR data not 4 bytes");
+                }
+                let addr = Ipv4Addr::new(data[0], data[1], data[2], data[3]);
+                Ok(A(addr))
+            }
+            2 => {
+                let name = name::parse(msg, &mut data).with_context(|| "type NS RR")?;
+                Ok(NS(name))
+            }
+            3 => {
+                let name = name::parse(msg, &mut data).with_context(|| "type MD RR")?;
+                Ok(MD(name))
+            }
+            4 => {
+                let name = name::parse(msg, &mut data).with_context(|| "type MF RR")?;
+                Ok(MF(name))
+            }
+            5 => {
+                let name = name::parse(msg, &mut data).with_context(|| "type CNAME RR")?;
+                Ok(CNAME(name))
+            }
+            6 => {
+                let mname = name::parse(msg, &mut data).with_context(|| "type SOA RR mname field")?;
+                let rname = name::parse(msg, &mut data).with_context(|| "type SOA RR rname field")?;
+                if data.remaining() < 4 {
+                    anyhow::bail!("incomplete type SOA RR serial field");
+                }
+                let serial = data.get_u32();
+                if data.remaining() < 4 {
+                    anyhow::bail!("incomplete type SOA RR refresh field");
+                }
+                let refresh = data.get_u32();
+                if data.remaining() < 4 {
+                    anyhow::bail!("incomplete type SOA RR retry field");
+                }
+                let retry = data.get_u32();
+                if data.remaining() < 4 {
+                    anyhow::bail!("incomplete type SOA RR expire field");
+                }
+                let expire = data.get_u32();
+                if data.remaining() < 4 {
+                    anyhow::bail!("incomplete type SOA RR minimum field");
+                }
+                let minimum = data.get_i32();
+                Ok(SOA {
+                    mname,
+                    rname,
+                    serial,
+                    refresh,
+                    retry,
+                    expire,
+                    minimum,
+                })
+            }
+            7 => {
+                let name = name::parse(msg, &mut data).with_context(|| "type MB RR")?;
+                Ok(MB(name))
+            }
+            8 => {
+                let name = name::parse(msg, &mut data).with_context(|| "type MG RR")?;
+                Ok(MG(name))
+            }
+            9 => {
+                let name = name::parse(msg, &mut data).with_context(|| "type MR RR")?;
+                Ok(MR(name))
+            }
+            10 => {
+                Ok(NULL(data.to_vec()))
+            }
+            11 => {
+                // TODO: Pick up here.
+                Ok(WKS())
+            }
+            12 => {
+                let name = name::parse(msg, &mut data).with_context(|| "type PTR RR")?;
+                Ok(PTR(name))
+            }
+            13 => {
+                Ok(HINFO {
+                    cpu: CharacterString::parse(data).with_context(|| "type HINFO RR cpu field")?,
+                    os: CharacterString::parse(data).with_context(|| "type HINFO RR ok field")?
+                })
+            }
+            14 => {
+                Ok(MINFO {
+                    rmailbx: name::parse(msg, &mut data).with_context(|| "type MINFO RR rmailbx field")?,
+                    emailbx: name::parse(msg, &mut data).with_context(|| "type MINFO RR emailbx field")?,
+                })
+            }
+            15 => {
+                if data.remaining() < 2 {
+                    anyhow::bail!("incomplete type MX RR preference field");
+                }
+                let preference = data.get_i16();
+                Ok(MX {
+                    preference,
+                    exchange: name::parse(msg, &mut data).with_context(|| "type MX RR exchange field")?
+                })
+            }
+            16 => {
+                let mut txt_data = Vec::new();
+                while let Ok(ch_str) = CharacterString::parse(data) {
+                    txt_data.push(ch_str);
+                }
+                Ok(TXT(txt_data))
+            }
             n => Err(anyhow::anyhow!("invalid RR type '{n}'")),
         }
     }
@@ -204,6 +305,25 @@ impl Type {
             MX => 15,
             TXT => 16,
         }
+    }
+}
+
+struct CharacterString;
+
+impl CharacterString {
+    fn parse(data: &[u8]) -> anyhow::Result<String> {
+        let mut data = data;
+        if data.remaining() == 0 {
+            anyhow::bail!("incomplete character string length");
+        }
+        let len = data.get_u8() as usize;
+        if len > 255 {
+            anyhow::bail!("character string too long");
+        }
+        if data.remaining() < len {
+            anyhow::bail!("incomplete character string");
+        }
+        Ok(String::from_utf8(data.to_vec())?)
     }
 }
 
@@ -378,6 +498,12 @@ mod test {
     }
 
     #[test]
+    fn parse_character_string() {
+        // TODO: First write the serialize test.
+        todo!("write this test");
+    }
+
+    #[test]
     fn serialize_type() {
         assert_eq!(Type::A.serialize(), 1);
         assert_eq!(Type::NS.serialize(), 2);
@@ -428,5 +554,10 @@ mod test {
         assert_eq!(cursor, rr.data.unwrap());
 
         Ok(())
+    }
+
+    #[test]
+    fn serialize_character_string() {
+        todo!("write this test");
     }
 }
