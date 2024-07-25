@@ -1,13 +1,12 @@
 use crate::name;
 use bytes::{Buf, BufMut};
-use std::{fmt, net::Ipv4Addr};
+use std::net::Ipv4Addr;
 use anyhow::Context;
 
-// TODO: Write a custom Debug implementation that interprets the data field specially for
-// TODO: specific RR types (A, NS).
-#[derive(Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct ResourceRecord {
     pub name: String,
+    pub r#type: Type,
     pub class: Class,
     pub ttl: i32,
     pub data: Data,
@@ -87,35 +86,110 @@ impl ResourceRecord {
     }
 }
 
-impl fmt::Debug for ResourceRecord {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        unimplemented!("I believe this Debug implementation needs removed");
-        let mut dbg_struct = f.debug_struct("ResourceRecord");
-        dbg_struct.field("name", &self.name);
-        dbg_struct.field("type", &self.r#type);
-        dbg_struct.field("class", &self.class);
-        dbg_struct.field("ttl", &self.ttl);
-        if let Some(ref data) = self.data {
-            use Type::*;
-            use std::net::Ipv4Addr;
-            match self.r#type {
-                A if data.len() == 4 => {
-                    let ip = Ipv4Addr::new(data[0], data[1], data[2], data[3]);
-                    dbg_struct.field("data", &ip);
-                }
-                // NS => {
-                //     let name = name::parse()
-                // }
-                _ => {
-                    ()
-                }
-            };
+#[derive(Copy, Clone, Debug, PartialEq)]
+pub enum Type {
+    A,
+    NS,
+    MD,
+    MF,
+    CNAME,
+    SOA,
+    MB,
+    MG,
+    MR,
+    NULL,
+    WKS,
+    PTR,
+    HINFO,
+    MINFO,
+    MX,
+    TXT,
+}
+
+impl Type {
+    pub fn parse(unparsed: &mut &[u8]) -> anyhow::Result<Self> {
+        if unparsed.remaining() < 2 {
+            anyhow::bail!("incomplete type");
         }
-        dbg_struct.finish()
+        match unparsed.get_u16() {
+            1 => Ok(Type::A),
+            2 => Ok(Type::NS),
+            3 => Ok(Type::MD),
+            4 => Ok(Type::MF),
+            5 => Ok(Type::CNAME),
+            6 => Ok(Type::SOA),
+            7 => Ok(Type::MB),
+            8 => Ok(Type::MG),
+            9 => Ok(Type::MR),
+            10 => Ok(Type::NULL),
+            11 => Ok(Type::WKS),
+            12 => Ok(Type::PTR),
+            13 => Ok(Type::HINFO),
+            14 => Ok(Type::MINFO),
+            15 => Ok(Type::MX),
+            16 => Ok(Type::TXT),
+            n => Err(anyhow::anyhow!("invalid RR type '{n}'")),
+        }
+    }
+
+    pub fn serialize(&self) -> u16 {
+        use Type::*;
+
+        match self {
+            A => 1,
+            NS => 2,
+            MD => 3,
+            MF => 4,
+            CNAME => 5,
+            SOA => 6,
+            MB => 7,
+            MG => 8,
+            MR => 9,
+            NULL => 10,
+            WKS => 11,
+            PTR => 12,
+            HINFO => 13,
+            MINFO => 14,
+            MX => 15,
+            TXT => 16,
+        }
     }
 }
 
-// TODO: Write test stubs for parsing these data types.
+#[derive(Copy, Clone, Debug, PartialEq)]
+pub enum Class {
+    IN,
+    CS,
+    CH,
+    HS,
+}
+
+impl Class {
+    pub fn parse(unparsed: &mut &[u8]) -> anyhow::Result<Self> {
+        if unparsed.remaining() < 2 {
+            anyhow::bail!("incomplete class");
+        }
+        match unparsed.get_u16() {
+            1 => Ok(Class::IN),
+            2 => Ok(Class::CS),
+            3 => Ok(Class::CH),
+            4 => Ok(Class::HS),
+            n => Err(anyhow::anyhow!("invalid RR class '{n}'")),
+        }
+    }
+
+    pub fn serialize(&self) -> u16 {
+        use Class::*;
+
+        match self {
+            IN => 1,
+            CS => 2,
+            CH => 3,
+            HS => 4,
+        }
+    }
+}
+
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub enum Data {
     A(Ipv4Addr),
@@ -135,7 +209,7 @@ pub enum Data {
     MB(String),
     MG(String),
     MR(String),
-    NULL(Vec<u8>),      // TODO: Length must not exceed 65535
+    NULL(Vec<u8>),
     WKS {
         address: Ipv4Addr,
         protocol: u8,
@@ -143,7 +217,7 @@ pub enum Data {
     },
     PTR(String),
     HINFO {
-        cpu: String,    // TODO: Length of each must not exceed 255
+        cpu: String,
         os: String,
     },
     MINFO {
@@ -154,11 +228,11 @@ pub enum Data {
         preference: i16,
         exchange: String,
     },
-    TXT(Vec<String>),    // TODO: Length must not exceed 255
+    TXT(Vec<String>),
 }
 
 impl Data {
-    pub fn parse(msg: &[u8], unparsed: &mut &[u8], r#type: u16) -> anyhow::Result<Self> {
+    pub fn parse(msg: &[u8], unparsed: &mut &[u8], r#type: Type) -> anyhow::Result<Self> {
         if unparsed.remaining() < 2 {
             anyhow::bail!("incomplete data length");
         }
@@ -166,36 +240,35 @@ impl Data {
         if unparsed.remaining() < data_len {
             anyhow::bail!("incomplete data");
         }
-        let data = *unparsed;
+        let data = &(*unparsed)[..data_len];
         unparsed.advance(data_len);
         let mut data = &data[..];
 
-        use Data::*;
         match r#type {
-            1 => {
+            Type::A => {
                 if data_len != 4 {
                     anyhow::bail!("type A RR data not 4 bytes");
                 }
                 let addr = Ipv4Addr::new(data[0], data[1], data[2], data[3]);
-                Ok(A(addr))
+                Ok(Data::A(addr))
             }
-            2 => {
+            Type::NS => {
                 let name = name::parse(msg, &mut data).with_context(|| "type NS RR")?;
-                Ok(NS(name))
+                Ok(Data::NS(name))
             }
-            3 => {
+            Type::MD => {
                 let name = name::parse(msg, &mut data).with_context(|| "type MD RR")?;
-                Ok(MD(name))
+                Ok(Data::MD(name))
             }
-            4 => {
+            Type::MF => {
                 let name = name::parse(msg, &mut data).with_context(|| "type MF RR")?;
-                Ok(MF(name))
+                Ok(Data::MF(name))
             }
-            5 => {
+            Type::CNAME => {
                 let name = name::parse(msg, &mut data).with_context(|| "type CNAME RR")?;
-                Ok(CNAME(name))
+                Ok(Data::CNAME(name))
             }
-            6 => {
+            Type::SOA => {
                 let mname = name::parse(msg, &mut data).with_context(|| "type SOA RR mname field")?;
                 let rname = name::parse(msg, &mut data).with_context(|| "type SOA RR rname field")?;
                 if data.remaining() < 4 {
@@ -218,7 +291,7 @@ impl Data {
                     anyhow::bail!("incomplete type SOA RR minimum field");
                 }
                 let minimum = data.get_i32();
-                Ok(SOA {
+                Ok(Data::SOA {
                     mname,
                     rname,
                     serial,
@@ -228,59 +301,80 @@ impl Data {
                     minimum,
                 })
             }
-            7 => {
+            Type::MB => {
                 let name = name::parse(msg, &mut data).with_context(|| "type MB RR")?;
-                Ok(MB(name))
+                Ok(Data::MB(name))
             }
-            8 => {
+            Type::MG => {
                 let name = name::parse(msg, &mut data).with_context(|| "type MG RR")?;
-                Ok(MG(name))
+                Ok(Data::MG(name))
             }
-            9 => {
+            Type::MR => {
                 let name = name::parse(msg, &mut data).with_context(|| "type MR RR")?;
-                Ok(MR(name))
+                Ok(Data::MR(name))
             }
-            10 => {
-                Ok(NULL(data.to_vec()))
+            Type::NULL => {
+                if data_len > 65535 {
+                    anyhow::bail!("type NULL RR data too long");
+                }
+                Ok(Data::NULL(data.to_vec()))
             }
-            11 => {
-                // TODO: Pick up here.
-                Ok(WKS())
+            Type::WKS => {
+                if data.remaining() < 4 {
+                    anyhow::bail!("incomplete type WKS RR address field");
+                }
+                let address = Ipv4Addr::new(data[0], data[1], data[2], data[3]);
+                data.advance(4);
+
+                if data.remaining() < 1 {
+                    anyhow::bail!("incomplete type WKS RR protocol field");
+                }
+                let protocol = data.get_u8();
+
+                let mut bit_map = Vec::new();
+                while data.has_remaining() {
+                    bit_map.push(data.get_u8());
+                }
+
+                Ok(Data::WKS {
+                    address,
+                    protocol,
+                    bit_map,
+                })
             }
-            12 => {
+            Type::PTR => {
                 let name = name::parse(msg, &mut data).with_context(|| "type PTR RR")?;
-                Ok(PTR(name))
+                Ok(Data::PTR(name))
             }
-            13 => {
-                Ok(HINFO {
+            Type::HINFO => {
+                Ok(Data::HINFO {
                     cpu: CharacterString::parse(data).with_context(|| "type HINFO RR cpu field")?,
                     os: CharacterString::parse(data).with_context(|| "type HINFO RR ok field")?
                 })
             }
-            14 => {
-                Ok(MINFO {
+            Type::MINFO => {
+                Ok(Data::MINFO {
                     rmailbx: name::parse(msg, &mut data).with_context(|| "type MINFO RR rmailbx field")?,
                     emailbx: name::parse(msg, &mut data).with_context(|| "type MINFO RR emailbx field")?,
                 })
             }
-            15 => {
+            Type::MX => {
                 if data.remaining() < 2 {
                     anyhow::bail!("incomplete type MX RR preference field");
                 }
                 let preference = data.get_i16();
-                Ok(MX {
+                Ok(Data::MX {
                     preference,
                     exchange: name::parse(msg, &mut data).with_context(|| "type MX RR exchange field")?
                 })
             }
-            16 => {
+            Type::TXT => {
                 let mut txt_data = Vec::new();
                 while let Ok(ch_str) = CharacterString::parse(data) {
                     txt_data.push(ch_str);
                 }
-                Ok(TXT(txt_data))
+                Ok(Data::TXT(txt_data))
             }
-            n => Err(anyhow::anyhow!("invalid RR type '{n}'")),
         }
     }
 
@@ -324,40 +418,6 @@ impl CharacterString {
             anyhow::bail!("incomplete character string");
         }
         Ok(String::from_utf8(data.to_vec())?)
-    }
-}
-
-#[derive(Copy, Clone, Debug, PartialEq)]
-pub enum Class {
-    IN,
-    CS,
-    CH,
-    HS,
-}
-
-impl Class {
-    pub fn parse(unparsed: &mut &[u8]) -> anyhow::Result<Self> {
-        if unparsed.remaining() < 2 {
-            anyhow::bail!("incomplete class");
-        }
-        match unparsed.get_u16() {
-            1 => Ok(Class::IN),
-            2 => Ok(Class::CS),
-            3 => Ok(Class::CH),
-            4 => Ok(Class::HS),
-            n => Err(anyhow::anyhow!("invalid RR class '{n}'")),
-        }
-    }
-
-    pub fn serialize(&self) -> u16 {
-        use Class::*;
-
-        match self {
-            IN => 1,
-            CS => 2,
-            CH => 3,
-            HS => 4,
-        }
     }
 }
 
