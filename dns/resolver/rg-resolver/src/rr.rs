@@ -19,45 +19,23 @@ impl ResourceRecord {
         let r#type = Type::parse(unparsed)?;
         let class = Class::parse(unparsed)?;
         let ttl = Self::parse_ttl(unparsed)?;
-        // TODO: Need to parse the type-specific data at this point.
-        // TODO: msg is required if we need to parse any names.
-        // TODO: Maybe the best thing to do it combine the r#type field and the data field
-        // TODO: into a single data field that's a type-based enum:
-        // TODO: enum Data {
-        // TODO:    A(Ipv4Addr),
-        // TODO:    NS(String),
-        // TODO:    ...
-        // TODO: }
-        let data = Self::parse_data(unparsed)?;
+        let data = Data::parse(msg, unparsed, r#type)?;
 
         let rr = ResourceRecord {
             name,
             r#type,
             class,
             ttl,
-            data: Some(data),
+            data,
         };
         Ok(rr)
     }
 
-    fn parse_ttl(unparsed: &mut &[u8]) -> anyhow::Result<u32> {
+    fn parse_ttl(unparsed: &mut &[u8]) -> anyhow::Result<i32> {
         if unparsed.remaining() < 4 {
-            anyhow::bail!("incomplete TTL");
+            anyhow::bail!("incomplete RR TTL");
         }
-        Ok(unparsed.get_u32())
-    }
-
-    fn parse_data(unparsed: &mut &[u8]) -> anyhow::Result<Vec<u8>> {
-        if unparsed.remaining() < 2 {
-            anyhow::bail!("incomplete data length");
-        }
-        let data_len = unparsed.get_u16() as usize;
-        let mut data = vec![0; data_len];
-        if unparsed.remaining() < data_len {
-            anyhow::bail!("incomplete data");
-        }
-        unparsed.copy_to_slice(&mut data[..]);
-        Ok(data)
+        Ok(unparsed.get_i32())
     }
 
     /// * For a nameserver that needs to create ResourceRecord instances and serialize them,
@@ -75,7 +53,7 @@ impl ResourceRecord {
         buf.append(&mut name::serialize(&self.name, None)?);
         buf.put_u16(self.r#type.serialize());
         buf.put_u16(self.class.serialize());
-        buf.put_u32(self.ttl);
+        buf.put_i32(self.ttl);
         if let Some(data) = self.data.as_ref() {
             buf.put_u16(data.len() as u16);
             buf.append(&mut data.clone());
@@ -109,32 +87,32 @@ pub enum Type {
 impl Type {
     pub fn parse(unparsed: &mut &[u8]) -> anyhow::Result<Self> {
         if unparsed.remaining() < 2 {
-            anyhow::bail!("incomplete type");
+            anyhow::bail!("incomplete RR type");
         }
+        use Type::*;
         match unparsed.get_u16() {
-            1 => Ok(Type::A),
-            2 => Ok(Type::NS),
-            3 => Ok(Type::MD),
-            4 => Ok(Type::MF),
-            5 => Ok(Type::CNAME),
-            6 => Ok(Type::SOA),
-            7 => Ok(Type::MB),
-            8 => Ok(Type::MG),
-            9 => Ok(Type::MR),
-            10 => Ok(Type::NULL),
-            11 => Ok(Type::WKS),
-            12 => Ok(Type::PTR),
-            13 => Ok(Type::HINFO),
-            14 => Ok(Type::MINFO),
-            15 => Ok(Type::MX),
-            16 => Ok(Type::TXT),
+            1 => Ok(A),
+            2 => Ok(NS),
+            3 => Ok(MD),
+            4 => Ok(MF),
+            5 => Ok(CNAME),
+            6 => Ok(SOA),
+            7 => Ok(MB),
+            8 => Ok(MG),
+            9 => Ok(MR),
+            10 => Ok(NULL),
+            11 => Ok(WKS),
+            12 => Ok(PTR),
+            13 => Ok(HINFO),
+            14 => Ok(MINFO),
+            15 => Ok(MX),
+            16 => Ok(TXT),
             n => Err(anyhow::anyhow!("invalid RR type '{n}'")),
         }
     }
 
     pub fn serialize(&self) -> u16 {
         use Type::*;
-
         match self {
             A => 1,
             NS => 2,
@@ -167,7 +145,7 @@ pub enum Class {
 impl Class {
     pub fn parse(unparsed: &mut &[u8]) -> anyhow::Result<Self> {
         if unparsed.remaining() < 2 {
-            anyhow::bail!("incomplete class");
+            anyhow::bail!("incomplete RR class");
         }
         match unparsed.get_u16() {
             1 => Ok(Class::IN),
@@ -180,7 +158,6 @@ impl Class {
 
     pub fn serialize(&self) -> u16 {
         use Class::*;
-
         match self {
             IN => 1,
             CS => 2,
@@ -190,7 +167,7 @@ impl Class {
     }
 }
 
-#[derive(Copy, Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum Data {
     A(Ipv4Addr),
     NS(String),
@@ -234,15 +211,14 @@ pub enum Data {
 impl Data {
     pub fn parse(msg: &[u8], unparsed: &mut &[u8], r#type: Type) -> anyhow::Result<Self> {
         if unparsed.remaining() < 2 {
-            anyhow::bail!("incomplete data length");
+            anyhow::bail!("incomplete RR data length");
         }
         let data_len = unparsed.get_u16() as usize;
         if unparsed.remaining() < data_len {
-            anyhow::bail!("incomplete data");
+            anyhow::bail!("incomplete RR data");
         }
-        let data = &(*unparsed)[..data_len];
+        let mut data = &unparsed[..data_len];
         unparsed.advance(data_len);
-        let mut data = &data[..];
 
         match r#type {
             Type::A => {
@@ -378,26 +354,47 @@ impl Data {
         }
     }
 
-    pub fn serialize(&self) -> u16 {
-        use Type::*;
-
+    pub fn serialize(&self) -> Vec<u8> {
+        let mut data = Vec::new();
+        use Data::*;
         match self {
-            A => 1,
-            NS => 2,
-            MD => 3,
-            MF => 4,
-            CNAME => 5,
-            SOA => 6,
-            MB => 7,
-            MG => 8,
-            MR => 9,
-            NULL => 10,
-            WKS => 11,
-            PTR => 12,
-            HINFO => 13,
-            MINFO => 14,
-            MX => 15,
-            TXT => 16,
+            A(address) => data.append(&mut address.octets().to_vec()),
+            NS(String),
+            MD(String),
+            MF(String),
+            CNAME(String),
+            SOA {
+                mname: String,
+                rname: String,
+                serial: u32,
+                refresh: u32,
+                retry: u32,
+                expire: u32,
+                minimum: i32,
+            },
+            MB(String),
+            MG(String),
+            MR(String),
+            NULL(Vec<u8>),
+            WKS {
+                address: Ipv4Addr,
+                protocol: u8,
+                bit_map: Vec<u8>,
+            },
+            PTR(String),
+            HINFO {
+                cpu: String,
+                os: String,
+            },
+            MINFO {
+                rmailbx: String,
+                emailbx: String,
+            },
+            MX {
+                preference: i16,
+                exchange: String,
+            },
+            TXT(Vec<String>),
         }
     }
 }
