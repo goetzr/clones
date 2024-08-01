@@ -49,6 +49,8 @@ impl ResourceRecord {
     /// * parsing of Message instances, simply serialize the name of each
     /// * ResourceRecord instance as an uncompressed name.
     pub fn serialize(&self) -> anyhow::Result<Vec<u8>> {
+        // * A nameserver storing multiple RRs in a message must truncate messages
+        // * larger than 512 bytes.
         let mut buf = Vec::new();
         buf.append(&mut name::serialize(&self.name, None)?);
         buf.put_u16(self.r#type.serialize());
@@ -303,11 +305,7 @@ impl Data {
                     anyhow::bail!("incomplete type WKS RR protocol field");
                 }
                 let protocol = data.get_u8();
-
-                let mut bit_map = Vec::new();
-                while data.has_remaining() {
-                    bit_map.push(data.get_u8());
-                }
+                let bit_map = data[..].to_vec();
 
                 Ok(Data::WKS {
                     address,
