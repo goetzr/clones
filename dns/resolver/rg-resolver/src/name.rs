@@ -1,6 +1,5 @@
 use anyhow::Context;
 use bytes::{Buf, BufMut};
-use tracing::debug;
 
 /// ptr holds the offset within the *message* of the tail end of a compressed name.
 pub fn serialize(name: &str, ptr: Option<u16>) -> anyhow::Result<Vec<u8>> {

@@ -54,12 +54,9 @@ impl ResourceRecord {
         buf.put_u16(self.r#type.serialize());
         buf.put_u16(self.class.serialize());
         buf.put_i32(self.ttl);
-        if let Some(data) = self.data.as_ref() {
-            buf.put_u16(data.len() as u16);
-            buf.append(&mut data.clone());
-        } else {
-            buf.put_u16(0);
-        }
+        let mut data = self.data.serialize()?;
+        buf.put_u16(data.len() as u16);
+        buf.append(&mut data);
         Ok(buf)
     }
 }
@@ -354,67 +351,105 @@ impl Data {
         }
     }
 
-    pub fn serialize(&self) -> Vec<u8> {
+    pub fn serialize(&self) -> anyhow::Result<Vec<u8>> {
         let mut data = Vec::new();
         use Data::*;
         match self {
             A(address) => data.append(&mut address.octets().to_vec()),
-            NS(String),
-            MD(String),
-            MF(String),
-            CNAME(String),
+            NS(nsdname) => data.append(&mut name::serialize(nsdname, None)?),
+            MD(madname) => data.append(&mut name::serialize(madname, None)?),
+            MF(madname) => data.append(&mut name::serialize(madname, None)?),
+            CNAME(cname) => data.append(&mut name::serialize(cname, None)?),
             SOA {
-                mname: String,
-                rname: String,
-                serial: u32,
-                refresh: u32,
-                retry: u32,
-                expire: u32,
-                minimum: i32,
-            },
-            MB(String),
-            MG(String),
-            MR(String),
-            NULL(Vec<u8>),
+                mname,
+                rname,
+                serial,
+                refresh,
+                retry,
+                expire,
+                minimum,
+            } => {
+                data.append(&mut name::serialize(mname, None)?);
+                data.append(&mut name::serialize(rname, None)?);
+                data.put_u32(*serial);
+                data.put_u32(*refresh);
+                data.put_u32(*retry);
+                data.put_u32(*expire);
+                data.put_i32(*minimum);
+            }
+            MB(madname) => data.append(&mut name::serialize(madname, None)?),
+            MG(mgmname) => data.append(&mut name::serialize(mgmname, None)?),
+            MR(newname) => data.append(&mut name::serialize(newname, None)?),
+            NULL(any) => data.append(&mut any.clone()),
             WKS {
-                address: Ipv4Addr,
-                protocol: u8,
-                bit_map: Vec<u8>,
-            },
-            PTR(String),
+                address,
+                protocol,
+                bit_map,
+            } => {
+                data.append(&mut address.octets().to_vec());
+                data.put_u8(*protocol);
+                data.append(&mut bit_map.clone());
+            }
+            PTR(ptrdname) => data.append(&mut name::serialize(ptrdname, None)?),
             HINFO {
-                cpu: String,
-                os: String,
-            },
+                cpu,
+                os,
+            } => {
+                data.append(&mut CharacterString::serialize(cpu)?);
+                data.append(&mut CharacterString::serialize(os)?);
+            }
             MINFO {
-                rmailbx: String,
-                emailbx: String,
-            },
+                rmailbx,
+                emailbx,
+            } => {
+                data.append(&mut name::serialize(rmailbx, None)?);
+                data.append(&mut name::serialize(emailbx, None)?);
+            }
             MX {
-                preference: i16,
-                exchange: String,
-            },
-            TXT(Vec<String>),
-        }
+                preference,
+                exchange,
+            } => {
+                data.put_i16(*preference);
+                data.append(&mut name::serialize(exchange, None)?);
+            }
+            TXT(txt_data) => {
+                for txt in txt_data {
+                    data.append(&mut CharacterString::serialize(txt)?);
+                }
+            }
+        };
+        Ok(data)
     }
 }
 
 struct CharacterString;
 
 impl CharacterString {
+    const MAX_CHARS: usize = 255;
+
     fn parse(data: &[u8]) -> anyhow::Result<String> {
         let mut data = data;
         if data.remaining() == 0 {
             anyhow::bail!("incomplete character string length");
         }
         let len = data.get_u8() as usize;
-        if len > 255 {
+        if len > CharacterString::MAX_CHARS {
             anyhow::bail!("character string too long");
         }
         if data.remaining() < len {
             anyhow::bail!("incomplete character string");
         }
         Ok(String::from_utf8(data.to_vec())?)
+    }
+
+    fn serialize(name: &str) -> anyhow::Result<Vec<u8>> {
+        if name.len() > CharacterString::MAX_CHARS {
+            anyhow::bail!("string to long to be a character string");
+        }
+        let mut data = Vec::new();
+        data.put_u8(name.len() as u8);
+        data.append(&mut name.as_bytes().to_vec());
+        Ok(data)
     }
 }
 
