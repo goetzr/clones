@@ -196,56 +196,171 @@ mod test {
         Ok(())
     }
 
-    // TODO: Start here -- write tests.
     #[test]
-    fn incomplete_name() {
-        // Does not end in 0 byte.
+    fn parse_incomplete_name() {
+        let mut buf = Vec::new();
+        let name1 = "name1";
+        buf.put_u8(name1.len() as u8);
+        buf.append(&mut name1.as_bytes().to_vec());
+        // Does not end in 0 byte for NULL label.
+        let mut unparsed = &buf[..];
+        assert!(parse(&buf[..], &mut unparsed).is_err());
+    }
+
+    #[test]
+    fn parse_use_reserved_pointer_bits() {
+        let mut buf = Vec::new();
+
+        // First name is "name1".
+        let name1 = "name1";
+        buf.put_u8(name1.len() as u8);
+        buf.append(&mut name1.as_bytes().to_vec());
+        // 0 byte for NULL label.
+        buf.put_u8(0);
+
+        // Second name is "name2.name1".
+        let name2_ofs = buf.len();
+        let name2_label: &str = "name2";
+        buf.put_u8(name2_label.len() as u8);
+        buf.append(&mut name2_label.as_bytes().to_vec());
+        // Pointer offset starts with bits 10, which is a reserved pattern.
+        // Points to name1 at offset 0.
+        buf.put_u16(0x8000);
+
+        let mut unparsed = &buf[name2_ofs..];
+        assert!(parse(&buf[..], &mut unparsed).is_err());
+    }
+
+    #[test]
+    fn parse_incomplete_pointer() {
+        let mut buf = Vec::new();
+
+        // First name is "name1".
+        let name1 = "name1";
+        buf.put_u8(name1.len() as u8);
+        buf.append(&mut name1.as_bytes().to_vec());
+        // 0 byte for NULL label.
+        buf.put_u8(0);
+
+        // Second name is "name2.name1".
+        let name2_ofs = buf.len();
+        let name2_label: &str = "name2";
+        buf.put_u8(name2_label.len() as u8);
+        buf.append(&mut name2_label.as_bytes().to_vec());
+        // Pointer offset needs 2 bytes, but only 1 provided.
+        buf.put_u8(0xc0);
+
+        let mut unparsed = &buf[name2_ofs..];
+        assert!(parse(&buf[..], &mut unparsed).is_err());
+    }
+
+    #[test]
+    fn parse_pointer_to_later_in_msg() {
+        let mut buf = Vec::new();
+
+        // First name is "name1".
+        let name1 = "name1";
+        buf.put_u8(name1.len() as u8);
+        buf.append(&mut name1.as_bytes().to_vec());
+        // 0 byte for NULL label.
+        buf.put_u8(0);
+
+        // Second name is "name2.name1".
+        let name2_ofs = buf.len();
+        let name2_label: &str = "name2";
+        buf.put_u8(name2_label.len() as u8);
+        buf.append(&mut name2_label.as_bytes().to_vec());
+        // Placeholder for pointer to name3, which is *later* in the message.
+        let placeholder_ofs = buf.len();
+        // Write a 0 to the placeholder for now.
+        buf.put_u16(0);
+
+        // Third name is "name3".
+        let name3_ofs = buf.len();
+        let name3 = "name3";
+        buf.put_u8(name3.len() as u8);
+        buf.append(&mut name3.as_bytes().to_vec());
+        // 0 byte for NULL label.
+        buf.put_u8(0);
+
+        // Replace the placeholder pointer in name2 with name3's offset.
+        // name3 is *after* name2 in the message, so name2 can't point to it.
+        (&mut buf[placeholder_ofs..]).put_u16(0xc000 | name3_ofs as u16);
+
+        let mut unparsed = &buf[name2_ofs..];
+        assert!(parse(&buf[..], &mut unparsed).is_err());
+    }
+
+    #[test]
+    fn parse_pointer_outside_msg() {
+        let mut buf = Vec::new();
+
+        // First name is "name1".
+        let name1 = "name1";
+        buf.put_u8(name1.len() as u8);
+        buf.append(&mut name1.as_bytes().to_vec());
+        // 0 byte for NULL label.
+        buf.put_u8(0);
+
+        // Second name is "name2.name1".
+        let name2_ofs = buf.len();
+        let name2_label: &str = "name2";
+        buf.put_u8(name2_label.len() as u8);
+        buf.append(&mut name2_label.as_bytes().to_vec());
+        // Pointer points past the end of the message.
+        buf.put_u16(0xc000 | (buf.len() + 20) as u16);
+
+        let mut unparsed = &buf[name2_ofs..];
+        assert!(parse(&buf[..], &mut unparsed).is_err());
+    }
+
+    #[test]
+    fn parse_incomplete_label() {
+        let mut buf = Vec::new();
+
+        // First name is "name1".
+        let name1 = "name1";
+        // Make the length such that more data is expected than is present.
+        buf.put_u8(name1.len() as u8 + 10);
+        buf.append(&mut name1.as_bytes().to_vec());
+        // 0 byte for NULL label.
+        buf.put_u8(0);
+
+        let mut unparsed = &buf[..];
+        assert!(parse(&buf[..], &mut unparsed).is_err());
+    }
+
+    #[test]
+    fn parse_label_invalid_utf8() {
+        let mut buf = Vec::new();
+
+        // Name is unicode "Ф".
+        let cp = 0x424;
+        let b1 = 0xc0_u8 | ((cp >> 6) & 0x1f) as u8;
+        let b2 = 0x80_u8 | (cp & 0x3f) as u8;
+        let name1 = vec![b1, b2];
+        let name1 = String::from_utf8(name1).expect("mistake in utf-8 encoding for test");
+        buf.put_u8(name1.len() as u8);
+        buf.append(&mut name1.as_bytes().to_vec());
+        // 0 byte for NULL label.
+        buf.put_u8(0);
+
+        let mut unparsed = &buf[..];
+        assert!(parse(&buf[..], &mut unparsed).is_err());
+    }
+
+    #[test]
+    fn parse_label_not_ascii() {
         todo!("write this test");
     }
 
     #[test]
-    fn use_reserved_pointer_bits() {
+    fn parse_label_too_long() {
         todo!("write this test");
     }
 
     #[test]
-    fn incomplete_pointer() {
-        // Less than 2 bytes available for pointer offset.
-        todo!("write this test");
-    }
-
-    #[test]
-    fn pointer_to_later_in_msg() {
-        todo!("write this test");
-    }
-
-    #[test]
-    fn pointer_outside_msg() {
-        todo!("write this test");
-    }
-
-    #[test]
-    fn incomplete_label() {
-        todo!("write this test");
-    }
-
-    #[test]
-    fn label_invalid_utf8() {
-        todo!("write this test");
-    }
-
-    #[test]
-    fn label_not_ascii() {
-        todo!("write this test");
-    }
-
-    #[test]
-    fn label_too_long() {
-        todo!("write this test");
-    }
-
-    #[test]
-    fn name_too_long() {
+    fn parse_name_too_long() {
         todo!("write this test");
     }
 }
