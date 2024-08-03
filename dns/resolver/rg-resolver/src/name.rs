@@ -334,6 +334,24 @@ mod test {
     fn parse_label_invalid_utf8() {
         let mut buf = Vec::new();
 
+        // Name should be unicode "Ф", but an invalid UTF-8 encoding is used.
+        let cp = 0x424;
+        let b1 = 0xe0_u8 | ((cp >> 6) & 0x1f) as u8;
+        let b2 = 0xc0_u8 | (cp & 0x3f) as u8;
+        buf.put_u8(2);
+        buf.put_u8(b1);
+        buf.put_u8(b2);
+        // 0 byte for NULL label.
+        buf.put_u8(0);
+
+        let mut unparsed = &buf[..];
+        assert!(parse(&buf[..], &mut unparsed).is_err());
+    }
+
+    #[test]
+    fn parse_label_not_ascii() {
+        let mut buf = Vec::new();
+
         // Name is unicode "Ф".
         let cp = 0x424;
         let b1 = 0xc0_u8 | ((cp >> 6) & 0x1f) as u8;
@@ -350,17 +368,38 @@ mod test {
     }
 
     #[test]
-    fn parse_label_not_ascii() {
-        todo!("write this test");
-    }
-
-    #[test]
     fn parse_label_too_long() {
-        todo!("write this test");
+        let mut buf = Vec::new();
+
+        // Name is a single label that's 64 characters, exceeding the maximum label length of 63.
+        let name1 = "abcdefghij".repeat(6) + "abcd";
+        buf.put_u8(name1.len() as u8);
+        buf.append(&mut name1.as_bytes().to_vec());
+        // 0 byte for NULL label.
+        buf.put_u8(0);
+
+        let mut unparsed = &buf[..];
+        assert!(parse(&buf[..], &mut unparsed).is_err());
     }
 
     #[test]
     fn parse_name_too_long() {
-        todo!("write this test");
+        let mut buf = Vec::new();
+
+        // FName consists of 5 labels, the first 4 60 characters each and the last 16 characters.
+        // This makes the name 256 characters long, which exceeds the maximum name length of 255.
+        let first4_labels = "abcdefghij".repeat(6);
+        for _ in 0..4 {
+            buf.put_u8(first4_labels.len() as u8);
+            buf.append(&mut first4_labels.as_bytes().to_vec());
+        }
+        let last_label = "abcdefghijklmnop";
+        buf.put_u8(last_label.len() as u8);
+        buf.append(&mut last_label.as_bytes().to_vec());
+        // 0 byte for NULL label.
+        buf.put_u8(0);
+
+        let mut unparsed = &buf[..];
+        assert!(parse(&buf[..], &mut unparsed).is_err());
     }
 }

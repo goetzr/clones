@@ -612,6 +612,7 @@ mod test {
 
     #[test]
     fn parse_message() -> anyhow::Result<()> {
+        // TODO: Handle when the is_truncated bit is set.
         let header = Header {
             id: 7,
             is_response: true,
