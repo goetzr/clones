@@ -33,7 +33,7 @@ impl ResourceRecord {
             Type::TXT => matches!(data, Data::TXT(_)),
         };
         if !types_match {
-            anyhow::bail!("RR type doesn't match its data type");
+            anyhow::bail!("creating RR: type doesn't match data type");
         }
 
         let rr = ResourceRecord {
@@ -61,8 +61,8 @@ impl ResourceRecord {
     pub fn data(&self) -> &Data {
         &self.data
     }
-    
-    /// * msg must point to the very first byte of the message.
+
+    /// msg must point to the very first byte of the message.
     pub fn parse<'a>(msg: &'a [u8], unparsed: &mut &'a [u8]) -> anyhow::Result<ResourceRecord> {
         let name = name::parse(msg, unparsed)?;
         let r#type = Type::parse(unparsed)?;
@@ -259,11 +259,11 @@ pub enum Data {
 impl Data {
     pub fn parse(msg: &[u8], unparsed: &mut &[u8], r#type: Type) -> anyhow::Result<Self> {
         if unparsed.remaining() < 2 {
-            anyhow::bail!("incomplete RR data length");
+            anyhow::bail!("parsing RR: incomplete data length");
         }
         let data_len = unparsed.get_u16() as usize;
         if unparsed.remaining() < data_len {
-            anyhow::bail!("incomplete RR data");
+            anyhow::bail!("parsing RR: incomplete data");
         }
         let mut data = &unparsed[..data_len];
         unparsed.advance(data_len);
@@ -271,48 +271,48 @@ impl Data {
         match r#type {
             Type::A => {
                 if data_len != 4 {
-                    anyhow::bail!("type A RR data not 4 bytes");
+                    anyhow::bail!("parsing RR: type A RR data not 4 bytes");
                 }
                 let addr = Ipv4Addr::new(data[0], data[1], data[2], data[3]);
                 Ok(Data::A(addr))
             }
             Type::NS => {
-                let name = name::parse(msg, &mut data).with_context(|| "type NS RR")?;
+                let name = name::parse(msg, &mut data).with_context(|| "parsing RR: type NS RR invalid nsdname")?;
                 Ok(Data::NS(name))
             }
             Type::MD => {
-                let name = name::parse(msg, &mut data).with_context(|| "type MD RR")?;
+                let name = name::parse(msg, &mut data).with_context(|| "parsing RR: type MD RR invalid madname")?;
                 Ok(Data::MD(name))
             }
             Type::MF => {
-                let name = name::parse(msg, &mut data).with_context(|| "type MF RR")?;
+                let name = name::parse(msg, &mut data).with_context(|| "parsing RR: type MF RR invalid madname")?;
                 Ok(Data::MF(name))
             }
             Type::CNAME => {
-                let name = name::parse(msg, &mut data).with_context(|| "type CNAME RR")?;
+                let name = name::parse(msg, &mut data).with_context(|| "parsing RR: type CNAME RR invalid cname")?;
                 Ok(Data::CNAME(name))
             }
             Type::SOA => {
-                let mname = name::parse(msg, &mut data).with_context(|| "type SOA RR mname field")?;
-                let rname = name::parse(msg, &mut data).with_context(|| "type SOA RR rname field")?;
+                let mname = name::parse(msg, &mut data).with_context(|| "parsing RR: type SOA RR invalid mname")?;
+                let rname = name::parse(msg, &mut data).with_context(|| "parsing RR: type SOA RR invalid rname")?;
                 if data.remaining() < 4 {
-                    anyhow::bail!("incomplete type SOA RR serial field");
+                    anyhow::bail!("parsing RR: incomplete type SOA RR serial field");
                 }
                 let serial = data.get_u32();
                 if data.remaining() < 4 {
-                    anyhow::bail!("incomplete type SOA RR refresh field");
+                    anyhow::bail!("parsing RR: incomplete type SOA RR refresh field");
                 }
                 let refresh = data.get_u32();
                 if data.remaining() < 4 {
-                    anyhow::bail!("incomplete type SOA RR retry field");
+                    anyhow::bail!("parsing RR: incomplete type SOA RR retry field");
                 }
                 let retry = data.get_u32();
                 if data.remaining() < 4 {
-                    anyhow::bail!("incomplete type SOA RR expire field");
+                    anyhow::bail!("parsing RR: incomplete type SOA RR expire field");
                 }
                 let expire = data.get_u32();
                 if data.remaining() < 4 {
-                    anyhow::bail!("incomplete type SOA RR minimum field");
+                    anyhow::bail!("parsing RR: incomplete type SOA RR minimum field");
                 }
                 let minimum = data.get_i32();
                 Ok(Data::SOA {
@@ -326,32 +326,32 @@ impl Data {
                 })
             }
             Type::MB => {
-                let name = name::parse(msg, &mut data).with_context(|| "type MB RR")?;
+                let name = name::parse(msg, &mut data).with_context(|| "parsing RR: type MB RR invalid madname")?;
                 Ok(Data::MB(name))
             }
             Type::MG => {
-                let name = name::parse(msg, &mut data).with_context(|| "type MG RR")?;
+                let name = name::parse(msg, &mut data).with_context(|| "parsing RR: type MG RR invalid mgmname")?;
                 Ok(Data::MG(name))
             }
             Type::MR => {
-                let name = name::parse(msg, &mut data).with_context(|| "type MR RR")?;
+                let name = name::parse(msg, &mut data).with_context(|| "parsing RR: type MR RR invalid newname")?;
                 Ok(Data::MR(name))
             }
             Type::NULL => {
                 if data_len > 65535 {
-                    anyhow::bail!("type NULL RR data too long");
+                    anyhow::bail!("parsing RR: type NULL RR data too long");
                 }
                 Ok(Data::NULL(data.to_vec()))
             }
             Type::WKS => {
                 if data.remaining() < 4 {
-                    anyhow::bail!("incomplete type WKS RR address field");
+                    anyhow::bail!("parsing RR: incomplete type WKS RR address field");
                 }
                 let address = Ipv4Addr::new(data[0], data[1], data[2], data[3]);
                 data.advance(4);
 
                 if data.remaining() < 1 {
-                    anyhow::bail!("incomplete type WKS RR protocol field");
+                    anyhow::bail!("parsing RR: incomplete type WKS RR protocol field");
                 }
                 let protocol = data.get_u8();
                 let bit_map = data[..].to_vec();
@@ -363,29 +363,29 @@ impl Data {
                 })
             }
             Type::PTR => {
-                let name = name::parse(msg, &mut data).with_context(|| "type PTR RR")?;
+                let name = name::parse(msg, &mut data).with_context(|| "parsing RR: type PTR RR invalid ptrdname")?;
                 Ok(Data::PTR(name))
             }
             Type::HINFO => {
                 Ok(Data::HINFO {
-                    cpu: CharacterString::parse(data).with_context(|| "type HINFO RR cpu field")?,
-                    os: CharacterString::parse(data).with_context(|| "type HINFO RR ok field")?
+                    cpu: CharacterString::parse(data).with_context(|| "parsing RR: type HINFO RR invalid cpu")?,
+                    os: CharacterString::parse(data).with_context(|| "parsing RR: type HINFO RR invalid os")?
                 })
             }
             Type::MINFO => {
                 Ok(Data::MINFO {
-                    rmailbx: name::parse(msg, &mut data).with_context(|| "type MINFO RR rmailbx field")?,
-                    emailbx: name::parse(msg, &mut data).with_context(|| "type MINFO RR emailbx field")?,
+                    rmailbx: name::parse(msg, &mut data).with_context(|| "parsing RR: type MINFO RR invalid rmailbx")?,
+                    emailbx: name::parse(msg, &mut data).with_context(|| "parsing RR: type MINFO RR invalid emailbx")?,
                 })
             }
             Type::MX => {
                 if data.remaining() < 2 {
-                    anyhow::bail!("incomplete type MX RR preference field");
+                    anyhow::bail!("parsing RR: incomplete type MX RR preference field");
                 }
                 let preference = data.get_i16();
                 Ok(Data::MX {
                     preference,
-                    exchange: name::parse(msg, &mut data).with_context(|| "type MX RR exchange field")?
+                    exchange: name::parse(msg, &mut data).with_context(|| "parsing RR: type MX RR invalid exchange")?
                 })
             }
             Type::TXT => {
@@ -399,10 +399,11 @@ impl Data {
     }
 
     pub fn serialize(&self) -> anyhow::Result<Vec<u8>> {
+        // TODO: Add context to error results!
         let mut data = Vec::new();
         use Data::*;
         match self {
-            A(address) => data.append(&mut address.octets().to_vec()),
+            A(address) => address.octets().iter().for_each(|b| data.put_u8(*b)),
             NS(nsdname) => data.append(&mut name::serialize(nsdname, None)?),
             MD(madname) => data.append(&mut name::serialize(madname, None)?),
             MF(madname) => data.append(&mut name::serialize(madname, None)?),
@@ -427,15 +428,15 @@ impl Data {
             MB(madname) => data.append(&mut name::serialize(madname, None)?),
             MG(mgmname) => data.append(&mut name::serialize(mgmname, None)?),
             MR(newname) => data.append(&mut name::serialize(newname, None)?),
-            NULL(any) => data.append(&mut any.clone()),
+            NULL(any) => any.iter().for_each(|b| data.put_u8(*b)),
             WKS {
                 address,
                 protocol,
                 bit_map,
             } => {
-                data.append(&mut address.octets().to_vec());
+                address.octets().iter().for_each(|b| data.put_u8(*b));
                 data.put_u8(*protocol);
-                data.append(&mut bit_map.clone());
+                bit_map.iter().for_each(|b| data.put_u8(*b));
             }
             PTR(ptrdname) => data.append(&mut name::serialize(ptrdname, None)?),
             HINFO {
@@ -495,7 +496,7 @@ impl CharacterString {
         }
         let mut data = Vec::new();
         data.put_u8(name.len() as u8);
-        data.append(&mut name.as_bytes().to_vec());
+        name.as_bytes().iter().for_each(|b| data.put_u8(*b));
         Ok(data)
     }
 }
@@ -651,7 +652,6 @@ mod test {
         assert_eq!(Class::HS.serialize(), 4);
     }
 
-    // A(address) => data.append(&mut address.octets().to_vec()),
     #[test]
     fn serialize_data_a() -> anyhow::Result<()> {
         let octets = [160, 23, 58, 191];
@@ -660,7 +660,6 @@ mod test {
         Ok(())
     }
     
-    // NS(nsdname) => data.append(&mut name::serialize(nsdname, None)?),
     #[test]
     fn serialize_data_ns() -> anyhow::Result<()> {
         let nsdname = "google.com.";
@@ -670,7 +669,6 @@ mod test {
         Ok(())
     }
 
-    // MD(madname) => data.append(&mut name::serialize(madname, None)?),
     #[test]
     fn serialize_data_md() -> anyhow::Result<()> {
         let madname = "google.com.";
@@ -680,7 +678,6 @@ mod test {
         Ok(())
     }
 
-    // MF(madname) => data.append(&mut name::serialize(madname, None)?),
     #[test]
     fn serialize_data_mf() -> anyhow::Result<()> {
         let madname = "google.com.";
@@ -690,7 +687,6 @@ mod test {
         Ok(())
     }
 
-    // CNAME(cname) => data.append(&mut name::serialize(cname, None)?),
     #[test]
     fn serialize_data_cname() -> anyhow::Result<()> {
         let cname = "google.com.";
@@ -700,23 +696,6 @@ mod test {
         Ok(())
     }
 
-    // SOA {
-    //     mname,
-    //     rname,
-    //     serial,
-    //     refresh,
-    //     retry,
-    //     expire,
-    //     minimum,
-    // } => {
-    //     data.append(&mut name::serialize(mname, None)?);
-    //     data.append(&mut name::serialize(rname, None)?);
-    //     data.put_u32(*serial);
-    //     data.put_u32(*refresh);
-    //     data.put_u32(*retry);
-    //     data.put_u32(*expire);
-    //     data.put_i32(*minimum);
-    // }
     #[test]
     fn serialize_data_soa() -> anyhow::Result<()> {
         let mname = "google.com.";
@@ -747,7 +726,6 @@ mod test {
         Ok(())
     }
 
-    // MB(madname) => data.append(&mut name::serialize(madname, None)?),
     #[test]
     fn serialize_data_mb() -> anyhow::Result<()> {
         let madname = "google.com.";
@@ -757,7 +735,6 @@ mod test {
         Ok(())
     }
 
-    // MG(mgmname) => data.append(&mut name::serialize(mgmname, None)?),
     #[test]
     fn serialize_data_mg() -> anyhow::Result<()> {
         let mgmname = "google.com.";
@@ -767,7 +744,6 @@ mod test {
         Ok(())
     }
 
-    // MR(newname) => data.append(&mut name::serialize(newname, None)?),
     #[test]
     fn serialize_data_mr() -> anyhow::Result<()> {
         let newname = "google.com.";
@@ -777,7 +753,6 @@ mod test {
         Ok(())
     }
 
-    // NULL(any) => data.append(&mut any.clone()),
     #[test]
     fn serialize_data_null() -> anyhow::Result<()> {
         let any = vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
@@ -786,15 +761,6 @@ mod test {
         Ok(())
     }
 
-    // WKS {
-    //     address,
-    //     protocol,
-    //     bit_map,
-    // } => {
-    //     data.append(&mut address.octets().to_vec());
-    //     data.put_u8(*protocol);
-    //     data.append(&mut bit_map.clone());
-    // }
     #[test]
     fn serialize_data_wks() -> anyhow::Result<()> {
         let octets = [123, 45, 98, 112];
@@ -807,14 +773,13 @@ mod test {
             bit_map: bit_map.clone(),
         };
         let mut expected = Vec::new();
-        expected.append(&mut octets.to_vec());
+        octets.iter().for_each(|b| expected.put_u8(*b));
         expected.put_u8(protocol);
-        expected.append(&mut bit_map.clone());
+        bit_map.iter().for_each(|b| expected.put_u8(*b));
         assert_eq!(data.serialize()?, expected);
         Ok(())
     }
 
-    // PTR(ptrdname) => data.append(&mut name::serialize(ptrdname, None)?),
     #[test]
     fn serialize_data_ptr() -> anyhow::Result<()> {
         let ptrdname = "google.com.";
@@ -824,13 +789,6 @@ mod test {
         Ok(())
     }
 
-    // HINFO {
-    //     cpu,
-    //     os,
-    // } => {
-    //     data.append(&mut CharacterString::serialize(cpu)?);
-    //     data.append(&mut CharacterString::serialize(os)?);
-    // }
     #[test]
     fn serialize_data_hinfo() -> anyhow::Result<()> {
         let cpu = "x64";
@@ -846,13 +804,6 @@ mod test {
         Ok(())
     }
 
-    // MINFO {
-    //     rmailbx,
-    //     emailbx,
-    // } => {
-    //     data.append(&mut name::serialize(rmailbx, None)?);
-    //     data.append(&mut name::serialize(emailbx, None)?);
-    // }
     #[test]
     fn serialize_data_minfo() -> anyhow::Result<()> {
         let rmailbx = "google.com.";
@@ -868,13 +819,6 @@ mod test {
         Ok(())
     }
 
-    // MX {
-    //     preference,
-    //     exchange,
-    // } => {
-    //     data.put_i16(*preference);
-    //     data.append(&mut name::serialize(exchange, None)?);
-    // }
     #[test]
     fn serialize_data_mx() -> anyhow::Result<()> {
         let preference = 12;
@@ -890,11 +834,6 @@ mod test {
         Ok(())
     }
 
-    // TXT(txt_data) => {
-    //     for txt in txt_data {
-    //         data.append(&mut CharacterString::serialize(txt)?);
-    //     }
-    // }
     #[test]
     fn serialize_data_txt() -> anyhow::Result<()> {
         let mut txt_data = Vec::new();
@@ -930,9 +869,9 @@ mod test {
         expected.put_u16(rr.r#type.serialize());
         expected.put_u16(rr.class.serialize());
         expected.put_i32(rr.ttl);
-        let mut data_ser = rr.data.serialize()?;
+        let data_ser = rr.data.serialize()?;
         expected.put_u16(data_ser.len() as u16);
-        expected.append(&mut data_ser);
+        data_ser.iter().for_each(|b| expected.put_u8(*b));
 
         assert_eq!(rr.serialize()?, expected);
         Ok(())
@@ -944,6 +883,7 @@ mod test {
         let mut expected = Vec::new();
         expected.put_u8(teststr.len() as u8);
         expected.append(&mut teststr.as_bytes().to_vec());
+        teststr.as_bytes().iter().for_each(|b| expected.put_u8(*b));
         assert_eq!(CharacterString::serialize(teststr)?, expected);
         Ok(())
     }

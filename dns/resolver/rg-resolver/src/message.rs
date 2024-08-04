@@ -281,8 +281,7 @@ impl Question {
     fn serialize(&self) -> anyhow::Result<Vec<u8>> {
         let mut buf = Vec::new();
         // * The question section holds the first name in the message, so it can't be compressed.
-        let mut name = name::serialize(&self.name, None)?;
-        buf.append(&mut name);
+        buf.append(&mut name::serialize(&self.name, None)?);
         buf.put_u16(self.r#type.serialize());
         buf.put_u16(self.class.serialize());
 

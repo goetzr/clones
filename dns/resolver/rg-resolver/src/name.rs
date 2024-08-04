@@ -3,29 +3,35 @@ use bytes::{Buf, BufMut};
 
 /// ptr holds the offset within the *message* of the tail end of a compressed name.
 pub fn serialize(name: &str, ptr: Option<u16>) -> anyhow::Result<Vec<u8>> {
+    if !name.is_ascii() {
+        anyhow::bail!("serializing name: name not ASCII");
+    }
     let mut buf = Vec::new();
     let labels = name.split('.').collect::<Vec<_>>();
     for label in labels {
         buf.put_u8(label.len() as u8);
-        for b in label.chars().map(|c| c as u8) {
-            buf.put_u8(b);
-        }
+        label.chars().map(|c| c as u8).for_each(|b| buf.put_u8(b));
     }
     if let Some(offset) = ptr {
+        if offset > 2_u16.pow(14) - 1 {
+            anyhow::bail!("serializing name: offset too large");
+        }
         if name.ends_with('.') {
-            anyhow::bail!("the root label may not precede the pointer in a compressed name");
+            anyhow::bail!(
+                "serializing name: the root label may not precede the pointer in a compressed name"
+            );
         }
         buf.put_u16(0xc000 | offset);
     } else {
         if !name.ends_with('.') {
-            anyhow::bail!("a non-compressed name must end with the root label");
+            anyhow::bail!("serializing name: a non-compressed name must end with the root label");
         }
     }
 
     Ok(buf)
 }
 
-/// *  to the very first byte of the message.
+/// msg must point to the very first byte of the message.
 pub fn parse<'a>(msg: &'a [u8], unparsed: &mut &'a [u8]) -> anyhow::Result<String> {
     let mut name = String::new();
     let mut buf = *unparsed;
@@ -35,7 +41,7 @@ pub fn parse<'a>(msg: &'a [u8], unparsed: &mut &'a [u8]) -> anyhow::Result<Strin
             let mut peek: &[u8] = buf;
             peek.get_u8() as usize
         } else {
-            anyhow::bail!("incomplete name")
+            anyhow::bail!("parsing name: incomplete name")
         };
         if len == 0 {
             // Advance past the length byte we only peeked at.
@@ -48,14 +54,14 @@ pub fn parse<'a>(msg: &'a [u8], unparsed: &mut &'a [u8]) -> anyhow::Result<Strin
             if name.len() <= 255 {
                 return Ok(name);
             } else {
-                anyhow::bail!("name exceeds maximum length of 255");
+                anyhow::bail!("parsing name: name exceeds maximum length of 255");
             }
         }
         if is_compressed(len)? {
             let offset = if buf.remaining() >= 2 {
                 (buf.get_u16() & !0xc000) as usize
             } else {
-                anyhow::bail!("incomplete pointer")
+                anyhow::bail!("parsing name: incomplete pointer")
             };
             // Advance the input slice when the first pointer is encountered.
             // Pointed-to names are located earlier in the message so
@@ -73,15 +79,15 @@ pub fn parse<'a>(msg: &'a [u8], unparsed: &mut &'a [u8]) -> anyhow::Result<Strin
         let label = if buf.remaining() >= len {
             let label = &buf[..len];
             buf.advance(len);
-            let label =
-                String::from_utf8(label.to_vec()).with_context(|| "label not valid UTF-8")?;
+            let label = String::from_utf8(label.to_vec())
+                .with_context(|| "parsing name: label not valid UTF-8")?;
             if label.is_ascii() {
                 label
             } else {
-                anyhow::bail!("label not ASCII");
+                anyhow::bail!("parsing name: label not ASCII");
             }
         } else {
-            anyhow::bail!("incomplete label")
+            anyhow::bail!("parsing name: incomplete label")
         };
         name.push_str(&label);
         name.push('.');
@@ -93,7 +99,7 @@ fn is_compressed(len: usize) -> anyhow::Result<bool> {
         0xc0 => Ok(true),
         0x00 => Ok(false),
         _ => Err(anyhow::anyhow!(
-            "use of reserved value in compression indication bits"
+            "parsing name: use of reserved value in compression indication bits"
         )),
     }
 }
@@ -102,6 +108,18 @@ fn is_compressed(len: usize) -> anyhow::Result<bool> {
 mod test {
     use super::*;
     use bytes::BufMut;
+
+    #[test]
+    fn serialize_non_ascii_name() {
+        // Name is unicode "Ф.".
+        let cp = 0x424;
+        let b1 = 0xc0_u8 | ((cp >> 6) & 0x1f) as u8;
+        let b2 = 0x80_u8 | (cp & 0x3f) as u8;
+        let name = vec![b1, b2];
+        let mut name = String::from_utf8(name).expect("mistake in utf-8 encoding for test");
+        name.push('.');
+        assert!(serialize(&name, None).is_err());
+    }
 
     #[test]
     fn serialize_uncompressed() -> anyhow::Result<()> {
@@ -123,6 +141,11 @@ mod test {
 
         assert!(serialize("api.", Some(7)).is_err());
         Ok(())
+    }
+
+    #[test]
+    fn serialize_compressed_offset_too_long() {
+        assert!(serialize("api", Some(2_u16.pow(14))).is_err());
     }
 
     #[test]
