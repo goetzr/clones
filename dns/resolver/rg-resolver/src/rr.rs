@@ -641,38 +641,73 @@ mod test {
         Ok(())
     }
 
+    fn parse_data() {
+        // Incomplete data length.
+        let buf = vec![4];
+        let mut unparsed = &buf[..];
+        assert!(Data::parse(&buf[..], &mut unparsed, Type::A).is_err());
+
+        // Incomplete data.
+        let mut buf = Vec::new();
+        buf.put_u16(4);
+        buf.put_u8(156);
+        buf.put_u8(34);
+        let mut unparsed = &buf[..];
+        assert!(Data::parse(&buf[..], &mut unparsed, Type::A).is_err());
+    }
+
+    macro_rules! test_parse_data {
+        ($data:expr, $type:tt) => {
+            let mut ser_data = $data.serialize()?;
+            let mut buf = Vec::new();
+            buf.put_u16(ser_data.len() as u16);
+            buf.append(&mut ser_data);
+            let mut unparsed = &buf[..];
+            assert_eq!(Data::parse(&buf[..], &mut unparsed, Type::$type)?, $data);
+            assert_eq!(
+                unsafe { unparsed.as_ptr().offset_from(buf.as_ptr()) as usize },
+                buf.len()
+            );
+        };
+    }
+
     // A(address)
     #[test]
     fn parse_data_a() -> anyhow::Result<()> {
-        todo!("write this test");
+        let data = Data::A(Ipv4Addr::new(118, 67, 12, 114));
+        test_parse_data!(data, A);
         Ok(())
     }
 
     // NS(nsdname)
     #[test]
     fn parse_data_ns() -> anyhow::Result<()> {
-        todo!("write this test");
+        let data = Data::NS("google.com.".to_string());
+        test_parse_data!(data, NS);
         Ok(())
     }
 
     // MD(madname)
     #[test]
     fn parse_data_md() -> anyhow::Result<()> {
-        todo!("write this test");
+        let data = Data::MD("google.com.".to_string());
+        test_parse_data!(data, MD);
         Ok(())
     }
 
     // MF(madname)
     #[test]
     fn parse_data_mf() -> anyhow::Result<()> {
-        todo!("write this test");
+        let data = Data::MF("google.com.".to_string());
+        test_parse_data!(data, MF);
         Ok(())
     }
 
     // CNAME(cname)
     #[test]
     fn parse_data_cname() -> anyhow::Result<()> {
-        todo!("write this test");
+        let data = Data::CNAME("google.com.".to_string());
+        test_parse_data!(data, CNAME);
         Ok(())
     }
 
@@ -687,35 +722,48 @@ mod test {
     // }
     #[test]
     fn parse_data_soa() -> anyhow::Result<()> {
-        todo!("write this test");
+        let data = Data::SOA {
+            mname: "google.com.".to_string(),
+            rname: "amazon.com.".to_string(),
+            serial: 102,
+            refresh: 20,
+            retry: 45,
+            expire: 60,
+            minimum: 40,
+        };
+        test_parse_data!(data, SOA);
         Ok(())
     }
 
     // MB(madname)
     #[test]
     fn parse_data_mb() -> anyhow::Result<()> {
-        todo!("write this test");
+        let data = Data::MB("google.com.".to_string());
+        test_parse_data!(data, MB);
         Ok(())
     }
 
     // MG(mgmname)
     #[test]
     fn parse_data_mg() -> anyhow::Result<()> {
-        todo!("write this test");
+        let data = Data::MG("google.com.".to_string());
+        test_parse_data!(data, MG);
         Ok(())
     }
 
     // MR(newname)
     #[test]
     fn parse_data_mr() -> anyhow::Result<()> {
-        todo!("write this test");
+        let data = Data::MR("google.com.".to_string());
+        test_parse_data!(data, MR);
         Ok(())
     }
 
     // NULL(any)
     #[test]
     fn parse_data_null() -> anyhow::Result<()> {
-        todo!("write this test");
+        let data = Data::NULL(vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
+        test_parse_data!(data, NULL);
         Ok(())
     }
 
@@ -726,28 +774,42 @@ mod test {
     // }
     #[test]
     fn parse_data_wks() -> anyhow::Result<()> {
-        todo!("write this test");
+        let data = Data::WKS {
+            address: Ipv4Addr::new(34, 78, 119, 189),
+            protocol: 6,
+            bit_map: vec![10, 20, 30, 40],
+        };
+        test_parse_data!(data, WKS);
         Ok(())
     }
 
     // PTR(ptrdname)
     #[test]
     fn parse_data_ptr() -> anyhow::Result<()> {
-        todo!("write this test");
+        let data = Data::PTR("google.com.".to_string());
+        test_parse_data!(data, PTR);
         Ok(())
     }
 
     // HINFO { cpu, os }
     #[test]
     fn parse_data_hinfo() -> anyhow::Result<()> {
-        todo!("write this test");
+        let data = Data::HINFO {
+            cpu: "x64".to_string(),
+            os: "Ubuntu".to_string(),
+        };
+        test_parse_data!(data, HINFO);
         Ok(())
     }
 
     // MINFO { rmailbx, emailbx }
     #[test]
     fn parse_data_minfo() -> anyhow::Result<()> {
-        todo!("write this test");
+        let data = Data::MINFO {
+            rmailbx: "google.com.".to_string(),
+            emailbx: "amazon.com.".to_string(),
+        };
+        test_parse_data!(data, MINFO);
         Ok(())
     }
 
@@ -757,14 +819,23 @@ mod test {
     // }
     #[test]
     fn parse_data_mx() -> anyhow::Result<()> {
-        todo!("write this test");
+        let data = Data::MX {
+            preference: 8,
+            exchange: "google.com.".to_string(),
+        };
+        test_parse_data!(data, MX);
         Ok(())
     }
 
     // TXT(txt_data)
     #[test]
     fn parse_data_txt() -> anyhow::Result<()> {
-        todo!("write this test");
+        let data = Data::TXT(vec![
+            "text1".to_string(),
+            "text2".to_string(),
+            "text3".to_string(),
+        ]);
+        test_parse_data!(data, TXT);
         Ok(())
     }
 

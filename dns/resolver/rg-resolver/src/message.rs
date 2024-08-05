@@ -15,7 +15,7 @@ pub fn address_query(name: &str) -> Message {
         question_count: 1,
         answer_count: 0,
         authority_count: 0,
-        additional_count: 0
+        additional_count: 0,
     };
     // TODO: Eventually add AAAA question. Also look for other question/RR types.
     // TODO: Don't forget to update tests if more are added.
@@ -641,6 +641,7 @@ mod test {
 
         // * Use uncompressed names since only implementing the resolver at this time.
         // * If at some point a name server is implemented, use compressed names.
+        // TODO: Start here!
         let answer1 = rr::ResourceRecord {
             name: "google.com.".to_string(),
             r#type: rr::Type::A,
