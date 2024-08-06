@@ -58,11 +58,17 @@ pub fn parse<'a>(msg: &'a [u8], unparsed: &mut &'a [u8]) -> anyhow::Result<Strin
             }
         }
         if is_compressed(len)? {
+            let ptr_offset = unsafe { buf.as_ptr().offset_from(msg.as_ptr()) as usize };
             let offset = if buf.remaining() >= 2 {
                 (buf.get_u16() & !0xc000) as usize
             } else {
                 anyhow::bail!("parsing name: incomplete pointer")
             };
+            if offset >= ptr_offset {
+                anyhow::bail!(
+                    "parsing name: pointer must point to a name that exists earlier in the message"
+                );
+            }
             // Advance the input slice when the first pointer is encountered.
             // Pointed-to names are located earlier in the message so
             // the input slice should not be advanced after this.
@@ -288,27 +294,20 @@ mod test {
         // 0 byte for NULL label.
         buf.put_u8(0);
 
-        // Second name is "name2.name1".
+        // Second name is "name2.name3".
         let name2_ofs = buf.len();
         let name2_label: &str = "name2";
         buf.put_u8(name2_label.len() as u8);
         buf.append(&mut name2_label.as_bytes().to_vec());
-        // Placeholder for pointer to name3, which is *later* in the message.
-        let placeholder_ofs = buf.len();
-        // Write a 0 to the placeholder for now.
-        buf.put_u16(0);
+        // Point to name3, which is *later* in the message.
+        buf.put_u16(0xc000 + buf.len() as u16 + 2);
 
         // Third name is "name3".
-        let name3_ofs = buf.len();
         let name3 = "name3";
         buf.put_u8(name3.len() as u8);
         buf.append(&mut name3.as_bytes().to_vec());
         // 0 byte for NULL label.
         buf.put_u8(0);
-
-        // Replace the placeholder pointer in name2 with name3's offset.
-        // name3 is *after* name2 in the message, so name2 can't point to it.
-        (&mut buf[placeholder_ofs..]).put_u16(0xc000 | name3_ofs as u16);
 
         let mut unparsed = &buf[name2_ofs..];
         assert!(parse(&buf[..], &mut unparsed).is_err());

@@ -47,6 +47,7 @@ impl Message {
         // Keep msg pointing at the first byte of the message until the very end.
         let mut unparsed = *msg;
         let header = Header::parse(&mut unparsed)?;
+        // TODO: Handle when the is_truncated bit is set.
 
         let mut questions = Vec::with_capacity(header.question_count);
         for _ in 0..header.question_count {
@@ -390,6 +391,8 @@ impl QuestionClass {
 
 #[cfg(test)]
 mod test {
+    use std::net::Ipv4Addr;
+
     use super::*;
     use bytes::BufMut;
 
@@ -611,7 +614,6 @@ mod test {
 
     #[test]
     fn parse_message() -> anyhow::Result<()> {
-        // TODO: Handle when the is_truncated bit is set.
         let header = Header {
             id: 7,
             is_response: true,
@@ -641,53 +643,52 @@ mod test {
 
         // * Use uncompressed names since only implementing the resolver at this time.
         // * If at some point a name server is implemented, use compressed names.
-        // TODO: Start here!
-        let answer1 = rr::ResourceRecord {
-            name: "google.com.".to_string(),
-            r#type: rr::Type::A,
-            class: rr::Class::IN,
-            ttl: 100,
-            data: Some(vec![113, 234, 56, 89]),
-        };
-        let answer2 = rr::ResourceRecord {
-            name: "amazon.com.".to_string(),
-            r#type: rr::Type::A,
-            class: rr::Class::IN,
-            ttl: 100,
-            data: Some(vec![85, 107, 21, 77]),
-        };
+        let answer1 = rr::ResourceRecord::new(
+            "google.com.".to_string(),
+            rr::Type::A,
+            rr::Class::IN,
+            100,
+            rr::Data::A(Ipv4Addr::new(113, 234, 56, 89)),
+        )?;
+        let answer2 = rr::ResourceRecord::new(
+            "amazon.com.".to_string(),
+            rr::Type::A,
+            rr::Class::IN,
+            100,
+            rr::Data::A(Ipv4Addr::new(85, 107, 21, 77)),
+        )?;
         let answers = vec![answer1, answer2];
 
-        let authority1 = rr::ResourceRecord {
-            name: "google.com.".to_string(),
-            r#type: rr::Type::NS,
-            class: rr::Class::IN,
-            ttl: 250,
-            data: Some(name::serialize("ns.google.com.", None)?),
-        };
-        let authority2 = rr::ResourceRecord {
-            name: "amazon.com.".to_string(),
-            r#type: rr::Type::NS,
-            class: rr::Class::IN,
-            ttl: 250,
-            data: Some(name::serialize("ns.amazon.com.", None)?),
-        };
+        let authority1 = rr::ResourceRecord::new(
+            "google.com.".to_string(),
+            rr::Type::NS,
+            rr::Class::IN,
+            250,
+            rr::Data::NS("ns.google.com.".to_string()),
+        )?;
+        let authority2 = rr::ResourceRecord::new(
+            "amazon.com.".to_string(),
+            rr::Type::NS,
+            rr::Class::IN,
+            250,
+            rr::Data::NS("ns.amazon.com.".to_string()),
+        )?;
         let authorities = vec![authority1, authority2];
 
-        let additional1 = rr::ResourceRecord {
-            name: "google.com.".to_string(),
-            r#type: rr::Type::CNAME,
-            class: rr::Class::IN,
-            ttl: 150,
-            data: Some(name::serialize("www.google.com.", None)?),
-        };
-        let additional2 = rr::ResourceRecord {
-            name: "amazon.com.".to_string(),
-            r#type: rr::Type::CNAME,
-            class: rr::Class::IN,
-            ttl: 150,
-            data: Some(name::serialize("www.amazon.com.", None)?),
-        };
+        let additional1 = rr::ResourceRecord::new(
+            "google.com.".to_string(),
+            rr::Type::CNAME,
+            rr::Class::IN,
+            150,
+            rr::Data::CNAME("www.google.com.".to_string()),
+        )?;
+        let additional2 = rr::ResourceRecord::new(
+            "amazon.com.".to_string(),
+            rr::Type::CNAME,
+            rr::Class::IN,
+            150,
+            rr::Data::CNAME("www.amazon.com.".to_string()),
+        )?;
         let additionals = vec![additional1, additional2];
 
         let message = Message {
@@ -831,52 +832,52 @@ mod test {
 
         // * Use uncompressed names since only implementing the resolver at this time.
         // * If at some point a name server is implemented, use compressed names.
-        let answer1 = rr::ResourceRecord {
-            name: "google.com.".to_string(),
-            r#type: rr::Type::A,
-            class: rr::Class::IN,
-            ttl: 100,
-            data: Some(vec![113, 234, 56, 89]),
-        };
-        let answer2 = rr::ResourceRecord {
-            name: "amazon.com.".to_string(),
-            r#type: rr::Type::A,
-            class: rr::Class::IN,
-            ttl: 100,
-            data: Some(vec![85, 107, 21, 77]),
-        };
+        let answer1 = rr::ResourceRecord::new(
+            "google.com.".to_string(),
+            rr::Type::A,
+            rr::Class::IN,
+            100,
+            rr::Data::A(Ipv4Addr::new(113, 234, 56, 89)),
+        )?;
+        let answer2 = rr::ResourceRecord::new(
+            "amazon.com.".to_string(),
+            rr::Type::A,
+            rr::Class::IN,
+            100,
+            rr::Data::A(Ipv4Addr::new(85, 107, 21, 77)),
+        )?;
         let answers = vec![answer1, answer2];
 
-        let authority1 = rr::ResourceRecord {
-            name: "google.com.".to_string(),
-            r#type: rr::Type::NS,
-            class: rr::Class::IN,
-            ttl: 250,
-            data: Some(name::serialize("ns.google.com.", None)?),
-        };
-        let authority2 = rr::ResourceRecord {
-            name: "amazon.com.".to_string(),
-            r#type: rr::Type::NS,
-            class: rr::Class::IN,
-            ttl: 250,
-            data: Some(name::serialize("ns.amazon.com.", None)?),
-        };
+        let authority1 = rr::ResourceRecord::new(
+            "google.com.".to_string(),
+            rr::Type::NS,
+            rr::Class::IN,
+            250,
+            rr::Data::NS("ns.google.com.".to_string()),
+        )?;
+        let authority2 = rr::ResourceRecord::new(
+            "amazon.com.".to_string(),
+            rr::Type::NS,
+            rr::Class::IN,
+            250,
+            rr::Data::NS("ns.amazon.com.".to_string()),
+        )?;
         let authorities = vec![authority1, authority2];
 
-        let additional1 = rr::ResourceRecord {
-            name: "google.com.".to_string(),
-            r#type: rr::Type::CNAME,
-            class: rr::Class::IN,
-            ttl: 150,
-            data: Some(name::serialize("www.google.com.", None)?),
-        };
-        let additional2 = rr::ResourceRecord {
-            name: "amazon.com.".to_string(),
-            r#type: rr::Type::CNAME,
-            class: rr::Class::IN,
-            ttl: 150,
-            data: Some(name::serialize("www.amazon.com.", None)?),
-        };
+        let additional1 = rr::ResourceRecord::new(
+            "google.com.".to_string(),
+            rr::Type::CNAME,
+            rr::Class::IN,
+            150,
+            rr::Data::CNAME("www.google.com.".to_string()),
+        )?;
+        let additional2 = rr::ResourceRecord::new(
+            "amazon.com.".to_string(),
+            rr::Type::CNAME,
+            rr::Class::IN,
+            150,
+            rr::Data::CNAME("www.amazon.com.".to_string()),
+        )?;
         let additionals = vec![additional1, additional2];
 
         let message = Message {

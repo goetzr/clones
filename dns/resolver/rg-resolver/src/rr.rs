@@ -13,7 +13,13 @@ pub struct ResourceRecord {
 }
 
 impl ResourceRecord {
-    fn new(name: String, r#type: Type, class: Class, ttl: i32, data: Data) -> anyhow::Result<Self> {
+    pub fn new(
+        name: String,
+        r#type: Type,
+        class: Class,
+        ttl: i32,
+        data: Data,
+    ) -> anyhow::Result<Self> {
         let types_match = match r#type {
             Type::A => matches!(data, Data::A(_)),
             Type::NS => matches!(data, Data::NS(_)),
@@ -543,7 +549,10 @@ impl CharacterString {
         if data.remaining() < len {
             anyhow::bail!("incomplete character string");
         }
-        Ok(String::from_utf8(data.to_vec())?)
+        let str_len = data.len();
+        let char_str = String::from_utf8(data.to_vec())?;
+        data.advance(str_len);
+        Ok(char_str)
     }
 
     fn serialize(name: &str) -> anyhow::Result<Vec<u8>> {
