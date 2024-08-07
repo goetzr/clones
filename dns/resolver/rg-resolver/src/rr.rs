@@ -538,20 +538,19 @@ struct CharacterString;
 impl CharacterString {
     const MAX_CHARS: usize = 255;
 
-    fn parse(data: &mut &[u8]) -> anyhow::Result<String> {
-        if data.remaining() == 0 {
+    fn parse(unparsed: &mut &[u8]) -> anyhow::Result<String> {
+        if unparsed.remaining() == 0 {
             anyhow::bail!("incomplete character string length");
         }
-        let len = data.get_u8() as usize;
+        let len = unparsed.get_u8() as usize;
         if len > CharacterString::MAX_CHARS {
             anyhow::bail!("character string too long");
         }
-        if data.remaining() < len {
+        if unparsed.remaining() < len {
             anyhow::bail!("incomplete character string");
         }
-        let str_len = data.len();
-        let char_str = String::from_utf8(data.to_vec())?;
-        data.advance(str_len);
+        let char_str = String::from_utf8(unparsed[..len].to_vec())?;
+        unparsed.advance(len);
         Ok(char_str)
     }
 

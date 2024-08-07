@@ -2,17 +2,21 @@ use anyhow::Context;
 use bytes::{Buf, BufMut};
 
 /// ptr holds the offset within the *message* of the tail end of a compressed name.
+// TODO: If a nameserver that generates compressed names is ever implemented,
+// TODO: somewhere (maybe not this function) should check that the
+// TODO: specified offset is **before** the current location in the message.
 pub fn serialize(name: &str, ptr: Option<u16>) -> anyhow::Result<Vec<u8>> {
     if !name.is_ascii() {
         anyhow::bail!("serializing name: name not ASCII");
     }
     let mut buf = Vec::new();
-    let labels = name.split('.').collect::<Vec<_>>();
+    let labels = name.split('.').map(str::trim).collect::<Vec<_>>();
     for label in labels {
         buf.put_u8(label.len() as u8);
         label.chars().map(|c| c as u8).for_each(|b| buf.put_u8(b));
     }
     if let Some(offset) = ptr {
+        // TODO: Offset must be < 0xc000!!!!
         if offset > 2_u16.pow(14) - 1 {
             anyhow::bail!("serializing name: offset too large");
         }
@@ -26,6 +30,8 @@ pub fn serialize(name: &str, ptr: Option<u16>) -> anyhow::Result<Vec<u8>> {
         if !name.ends_with('.') {
             anyhow::bail!("serializing name: a non-compressed name must end with the root label");
         }
+        // * The call to split above results in an empty string when the name ends with a '.',
+        // * causing a length byte of 0 to be added to the buffer for the NULL label as desired.
     }
 
     Ok(buf)
@@ -37,11 +43,12 @@ pub fn parse<'a>(msg: &'a [u8], unparsed: &mut &'a [u8]) -> anyhow::Result<Strin
     let mut buf = *unparsed;
     let mut input_slice_advanced = false;
     loop {
-        let len = if buf.has_remaining() {
+        if !buf.has_remaining() {
+            anyhow::bail!("parsing name: incomplete name");
+        }
+        let len = {
             let mut peek: &[u8] = buf;
             peek.get_u8() as usize
-        } else {
-            anyhow::bail!("parsing name: incomplete name")
         };
         if len == 0 {
             // Advance past the length byte we only peeked at.
@@ -58,12 +65,11 @@ pub fn parse<'a>(msg: &'a [u8], unparsed: &mut &'a [u8]) -> anyhow::Result<Strin
             }
         }
         if is_compressed(len)? {
+            if buf.remaining() < 2 {
+                anyhow::bail!("parsing name: incomplete pointer");
+            }
             let ptr_offset = unsafe { buf.as_ptr().offset_from(msg.as_ptr()) as usize };
-            let offset = if buf.remaining() >= 2 {
-                (buf.get_u16() & !0xc000) as usize
-            } else {
-                anyhow::bail!("parsing name: incomplete pointer")
-            };
+            let offset = (buf.get_u16() & !0xc000) as usize;
             if offset >= ptr_offset {
                 anyhow::bail!(
                     "parsing name: pointer must point to a name that exists earlier in the message"
@@ -76,25 +82,22 @@ pub fn parse<'a>(msg: &'a [u8], unparsed: &mut &'a [u8]) -> anyhow::Result<Strin
                 *unparsed = buf;
                 input_slice_advanced = true;
             }
-            // Continue parsing the name starting at the pointed to location ——in the message.
+            // Continue parsing the name starting at the pointed to location in the message.
             buf = &msg[offset..];
             continue;
         }
         // Advance past the length byte we only peeked at.
         buf.advance(1);
-        let label = if buf.remaining() >= len {
-            let label = &buf[..len];
-            buf.advance(len);
-            let label = String::from_utf8(label.to_vec())
-                .with_context(|| "parsing name: label not valid UTF-8")?;
-            if label.is_ascii() {
-                label
-            } else {
-                anyhow::bail!("parsing name: label not ASCII");
-            }
-        } else {
+        if buf.remaining() < len {
             anyhow::bail!("parsing name: incomplete label")
-        };
+        }
+        let label = &buf[..len];
+        buf.advance(len);
+        let label = String::from_utf8(label.to_vec())
+            .with_context(|| "parsing name: label not valid UTF-8")?;
+        if !label.is_ascii() {
+            anyhow::bail!("parsing name: label not ASCII");
+        }
         name.push_str(&label);
         name.push('.');
     }
