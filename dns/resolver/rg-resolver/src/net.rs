@@ -5,10 +5,6 @@ use tracing::info;
 const UDP_PORT: u16 = 53;
 
 pub fn tx_then_rx_udp(msg: &Message) -> anyhow::Result<Message> {
-    // ! Eventually implement a check for the message size being <= 512 bytes.
-    // ! If the size is > 512 bytes, truncate the message and set the
-    // ! TC bit in the header.
-
     let sock = UdpSocket::bind(SocketAddrV4::new(Ipv4Addr::UNSPECIFIED, 0))?;
     info!("Socket bound");
     sock.connect(get_nameserver_addr()?)?;

@@ -2,7 +2,6 @@ use crate::{name, rr};
 use bytes::{Buf, BufMut};
 
 pub fn address_query(name: &str) -> Message {
-    // TODO: Eventually need an auto-incrementing ID.
     let header = Header {
         id: 1,
         is_response: false,
@@ -17,8 +16,6 @@ pub fn address_query(name: &str) -> Message {
         authority_count: 0,
         additional_count: 0,
     };
-    // TODO: Eventually add AAAA question. Also look for other question/RR types.
-    // TODO: Don't forget to update tests if more are added.
     let question = Question {
         name: name.to_string(),
         r#type: QuestionType::RrType(rr::Type::A),
@@ -47,7 +44,9 @@ impl Message {
         // Keep msg pointing at the first byte of the message until the very end.
         let mut unparsed = *msg;
         let header = Header::parse(&mut unparsed)?;
-        // TODO: Handle when the is_truncated bit is set.
+        if header.is_truncated {
+            anyhow::bail!("parsing message: message is truncated");
+        }
 
         let mut questions = Vec::with_capacity(header.question_count);
         for _ in 0..header.question_count {
@@ -99,6 +98,9 @@ impl Message {
         for additional in &self.additionals {
             vec.append(&mut additional.serialize()?);
         }
+        if vec.len() > 512 {
+            anyhow::bail!("serializing message: message requires truncation")
+        }
         Ok(vec)
     }
 }
@@ -121,18 +123,18 @@ pub struct Header {
 
 impl Header {
     fn parse(unparsed: &mut &[u8]) -> anyhow::Result<Header> {
-        macro_rules! check_remaining {
-            ($size:expr, $field:expr) => {
+        macro_rules! get_u16_field {
+            ($size:expr, $field:expr) => {{
                 if unparsed.remaining() < $size {
                     anyhow::bail!("incomplete header field: {}", $field);
                 }
-            };
+                unparsed.get_u16()
+            }};
         }
-        check_remaining!(2, "id");
-        let id = unparsed.get_u16();
 
-        check_remaining!(2, "bitfields");
-        let bitfields = unparsed.get_u16();
+        let id = get_u16_field!(2, "id");
+
+        let bitfields = get_u16_field!(2, "bitfields");
         let is_response = (bitfields >> 15) & 1 == 1;
         let opcode = Opcode::parse(bitfields)?;
         let is_authoritative_answer = (bitfields >> 10) & 1 == 1;
@@ -145,14 +147,10 @@ impl Header {
         }
         let response_code = ResponseCode::parse(bitfields)?;
 
-        check_remaining!(2, "question count");
-        let question_count = unparsed.get_u16() as usize;
-        check_remaining!(2, "answer count");
-        let answer_count = unparsed.get_u16() as usize;
-        check_remaining!(2, "authority count");
-        let authority_count = unparsed.get_u16() as usize;
-        check_remaining!(2, "additional count");
-        let additional_count = unparsed.get_u16() as usize;
+        let question_count = get_u16_field!(2, "question count") as usize;
+        let answer_count = get_u16_field!(2, "answer count") as usize;
+        let authority_count = get_u16_field!(2, "authority count") as usize;
+        let additional_count = get_u16_field!(2, "additional count") as usize;
 
         let header = Header {
             id,

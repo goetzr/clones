@@ -2,9 +2,9 @@ use anyhow::Context;
 use bytes::{Buf, BufMut};
 
 /// ptr holds the offset within the *message* of the tail end of a compressed name.
-// TODO: If a nameserver that generates compressed names is ever implemented,
-// TODO: somewhere (maybe not this function) should check that the
-// TODO: specified offset is **before** the current location in the message.
+// TODO: To make this safer and ensure that the pointer offset is before the current
+// TODO: offset into the message, create a Pointer structure and make the ptr
+// TODO: parameter have type Option<Pointer>.
 pub fn serialize(name: &str, ptr: Option<u16>) -> anyhow::Result<Vec<u8>> {
     if !name.is_ascii() {
         anyhow::bail!("serializing name: name not ASCII");
@@ -16,7 +16,6 @@ pub fn serialize(name: &str, ptr: Option<u16>) -> anyhow::Result<Vec<u8>> {
         label.chars().map(|c| c as u8).for_each(|b| buf.put_u8(b));
     }
     if let Some(offset) = ptr {
-        // TODO: Offset must be < 0xc000!!!!
         if offset > 2_u16.pow(14) - 1 {
             anyhow::bail!("serializing name: offset too large");
         }
@@ -119,18 +118,6 @@ mod test {
     use bytes::BufMut;
 
     #[test]
-    fn serialize_non_ascii_name() {
-        // Name is unicode "Ф.".
-        let cp = 0x424;
-        let b1 = 0xc0_u8 | ((cp >> 6) & 0x1f) as u8;
-        let b2 = 0x80_u8 | (cp & 0x3f) as u8;
-        let name = vec![b1, b2];
-        let mut name = String::from_utf8(name).expect("mistake in utf-8 encoding for test");
-        name.push('.');
-        assert!(serialize(&name, None).is_err());
-    }
-
-    #[test]
     fn serialize_uncompressed() -> anyhow::Result<()> {
         let name = serialize("google.com.", None)?;
         let expected = [
@@ -150,6 +137,18 @@ mod test {
 
         assert!(serialize("api.", Some(7)).is_err());
         Ok(())
+    }
+
+    #[test]
+    fn serialize_non_ascii_name() {
+        // Name is unicode "Ф.".
+        let cp = 0x424;
+        let b1 = 0xc0_u8 | ((cp >> 6) & 0x1f) as u8;
+        let b2 = 0x80_u8 | (cp & 0x3f) as u8;
+        let name = vec![b1, b2];
+        let mut name = String::from_utf8(name).expect("mistake in utf-8 encoding for test");
+        name.push('.');
+        assert!(serialize(&name, None).is_err());
     }
 
     #[test]

@@ -3,10 +3,11 @@ use tracing::info;
 use tracing_subscriber;
 
 mod message;
-mod rr;
 mod name;
 mod net;
+mod rr;
 
+// Example run: RUST_LOG=info cargo run -- yahoo.com.
 fn main() {
     if let Err(e) = run() {
         eprintln!("ERROR: {e}");
@@ -24,7 +25,7 @@ fn run() -> anyhow::Result<()> {
     info!("Querying address(es) for domain name {domain_name}...");
     let query = message::address_query(&domain_name);
     info!("Sending query {:#?}", query);
-    let response = net::tx_then_rx_udp(&query);
+    let response = net::tx_then_rx_udp(&query)?;
     info!("Got response: {:#?}", response);
 
     Ok(())

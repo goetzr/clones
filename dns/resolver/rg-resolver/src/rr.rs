@@ -97,19 +97,7 @@ impl ResourceRecord {
         Ok(unparsed.get_i32())
     }
 
-    /// * For a nameserver that needs to create ResourceRecord instances and serialize them,
-    /// * it will ideally keep track of the names it's generated thus far,
-    /// * and for every new name it needs to generate see if it's a superset of a
-    /// * previously generated name and should be compressed.
-    /// * For a resolver, the only name it needs to generate is the question name,
-    /// * which is always the first name in the message so it can't be compressed.
-    /// * Because only the resolver is being implemented at this point, and serialization
-    /// * of ResourceRecord instances is only being implemented to test the
-    /// * parsing of Message instances, simply serialize the name of each
-    /// * ResourceRecord instance as an uncompressed name.
     pub fn serialize(&self) -> anyhow::Result<Vec<u8>> {
-        // * A nameserver storing multiple RRs in a message must truncate messages
-        // * larger than 512 bytes.
         let mut buf = Vec::new();
         buf.append(&mut name::serialize(&self.name, None)?);
         buf.put_u16(self.r#type.serialize());
