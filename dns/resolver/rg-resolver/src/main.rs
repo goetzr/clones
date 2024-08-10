@@ -5,6 +5,7 @@ use tracing_subscriber;
 mod message;
 mod name;
 mod net;
+mod process;
 mod rr;
 
 // Example run: RUST_LOG=info cargo run -- yahoo.com.

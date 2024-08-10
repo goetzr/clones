@@ -40,9 +40,9 @@ pub struct Message {
 }
 
 impl Message {
-    pub fn parse(msg: &mut &[u8]) -> anyhow::Result<Message> {
+    pub fn parse(msg: &[u8]) -> anyhow::Result<Message> {
         // Keep msg pointing at the first byte of the message until the very end.
-        let mut unparsed = *msg;
+        let mut unparsed = msg;
         let header = Header::parse(&mut unparsed)?;
         if header.is_truncated {
             anyhow::bail!("parsing message: message is truncated");
@@ -72,7 +72,6 @@ impl Message {
             additionals.push(additional);
         }
 
-        *msg = unparsed;
         let message = Message {
             header,
             questions,
@@ -698,18 +697,13 @@ mod test {
         };
         let buf = message.serialize()?;
 
-        let mut unparsed = buf.as_slice();
-        let parsed_msg = Message::parse(&mut unparsed)?;
+        let parsed_msg = Message::parse(&buf[..])?;
 
         assert_eq!(parsed_msg.header, message.header);
         assert_eq!(parsed_msg.questions, message.questions);
         assert_eq!(parsed_msg.answers, message.answers);
         assert_eq!(parsed_msg.authorities, message.authorities);
         assert_eq!(parsed_msg.additionals, message.additionals);
-        assert_eq!(
-            unsafe { unparsed.as_ptr().offset_from(buf.as_ptr()) as usize },
-            buf.len()
-        );
 
         Ok(())
     }
@@ -887,18 +881,13 @@ mod test {
         };
         let buf = message.serialize()?;
 
-        let mut unparsed = buf.as_slice();
-        let parsed_msg = Message::parse(&mut unparsed)?;
+        let parsed_msg = Message::parse(&buf[..])?;
 
         assert_eq!(parsed_msg.header, header);
         assert_eq!(parsed_msg.questions, questions);
         assert_eq!(parsed_msg.answers, answers);
         assert_eq!(parsed_msg.authorities, authorities);
         assert_eq!(parsed_msg.additionals, additionals);
-        assert_eq!(
-            unsafe { unparsed.as_ptr().offset_from(buf.as_ptr()) as usize },
-            buf.len()
-        );
 
         Ok(())
     }
