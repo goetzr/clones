@@ -1,7 +1,11 @@
+use connection::Client;
 use std::env;
+use std::net::{Ipv4Addr, SocketAddrV4};
+use tokio::net::TcpListener;
 use tracing::info;
 use tracing_subscriber;
 
+mod connection;
 mod message;
 mod name;
 mod net;
@@ -9,25 +13,22 @@ mod process;
 mod rr;
 
 // Example run: RUST_LOG=info cargo run -- yahoo.com.
-fn main() {
-    if let Err(e) = run() {
-        eprintln!("ERROR: {e}");
-        std::process::exit(1);
-    }
-}
-
-fn run() -> anyhow::Result<()> {
+#[tokio::main]
+async fn main() -> anyhow::Result<()> {
     tracing_subscriber::fmt::init();
 
-    let Some(domain_name) = env::args().skip(1).next() else {
-        anyhow::bail!("must specify domain name".to_string());
-    };
+    const PORT: u16 = 6789;
+    info!("Listening for clients on TCP port {PORT}...");
+    let listener = TcpListener::bind(SocketAddrV4::new(Ipv4Addr::UNSPECIFIED, PORT)).await?;
+    loop {
+        let client = Client::new(listener.accept().await?.0);
+        info!("Accepted new client");
+        tokio::spawn(async {
+            while let Some(domain_name) = client.next_request()? {
+                println!("Request for {domain_name}");
+            }
 
-    info!("Querying address(es) for domain name {domain_name}...");
-    let query = message::address_query(&domain_name);
-    info!("Sending query {:#?}", query);
-    let response = net::tx_then_rx_udp(&query)?;
-    info!("Got response: {:#?}", response);
-
-    Ok(())
+            anyhow::Result::<()>::Ok(())
+        })
+    }
 }
