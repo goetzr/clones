@@ -2,7 +2,7 @@ use tokio::io::AsyncReadExt;
 use tokio::io::ErrorKind;
 use tokio::net::TcpStream;
 
-struct Connection {
+pub struct Connection {
     stream: TcpStream,
 }
 
