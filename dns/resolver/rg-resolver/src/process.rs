@@ -1,4 +1,4 @@
-use crate::message::Message;
+use crate::message::{Message, Question};
 use std::net::{Ipv4Addr, SocketAddrV4};
 use tokio::net::UdpSocket;
 
@@ -26,4 +26,30 @@ impl QueryProcessor {
 
         Ok(())
     }
+}
+
+struct Request {
+    /// SNAME, STYPE, SCLASS.
+    question: Question,
+}
+
+// TODO: Load SBELT from configuration file.
+struct NameServerList {
+    /// Zone name equivalent.
+    /// Number of labels from the root down which SNAME has in common with the zone being queried.
+    /// Used as a measure of how "close" the resolver is to SNAME.
+    match_count: i32,
+    name_servers: Vec<NameServer>,
+}
+
+struct NameServer {
+    name: String,
+    addresses: Vec<NameServerAddress>,
+}
+
+struct NameServerAddress {
+    address: Ipv4Addr,
+    /// Weighted average for response time.
+    /// Batting average.
+    history: u32,
 }

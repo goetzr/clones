@@ -24,7 +24,7 @@ async fn main() -> anyhow::Result<()> {
         info!("Accepted new client");
         tokio::spawn(async move {
             while let Some(domain_name) = connection.next_request().await? {
-                println!("Request for {domain_name}");
+                println!("Processing request for {domain_name}");
             }
 
             anyhow::Result::<()>::Ok(())
