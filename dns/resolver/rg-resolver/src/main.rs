@@ -20,10 +20,12 @@ async fn main() -> anyhow::Result<()> {
     info!("Listening for clients on TCP port {PORT}...");
     let listener = TcpListener::bind(SocketAddrV4::new(Ipv4Addr::UNSPECIFIED, PORT)).await?;
     loop {
-        let mut connection = Connection::new(listener.accept().await?.0);
+        let (stream, _) = listener.accept().await?;
+        let mut connection = Connection::new(stream);
         info!("Accepted new client");
         tokio::spawn(async move {
             while let Some(domain_name) = connection.next_request().await? {
+                // TODO: Each request needs a unique ID in the request from the client.
                 println!("Processing request for {domain_name}");
             }
 

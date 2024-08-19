@@ -17,8 +17,9 @@ impl QueryProcessor {
     }
 
     pub fn process(&self, query: Message) -> anyhow::Result<()> {
-        // 3. Handle CNAME.
-        // 4. Handle NS.
+        // Responses to QCLASS = * queries can never be authoritative.
+        // Responses to QTYPE = * must be authoritative.
+        // Don't cache RR if TTL == 0.
         self.sock.send(query.serialize()?.as_slice())?;
         let mut resp_buf = [0; 512];
         self.sock.recv(&mut resp_buf)?;
@@ -31,6 +32,7 @@ impl QueryProcessor {
 struct Request {
     /// SNAME, STYPE, SCLASS.
     question: Question,
+    timestamp: 
 }
 
 // TODO: Load SBELT from configuration file.

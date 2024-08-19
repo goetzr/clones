@@ -8,7 +8,7 @@ pub struct ResourceRecord {
     name: String,
     r#type: Type,
     class: Class,
-    ttl: i32,
+    ttl: u32,
     data: Data,
 }
 
@@ -17,7 +17,7 @@ impl ResourceRecord {
         name: String,
         r#type: Type,
         class: Class,
-        ttl: i32,
+        ttl: u32,
         data: Data,
     ) -> anyhow::Result<Self> {
         let types_match = match r#type {
@@ -64,7 +64,7 @@ impl ResourceRecord {
         self.class
     }
 
-    pub fn ttl(&self) -> i32 {
+    pub fn ttl(&self) -> u32 {
         self.ttl
     }
 
@@ -90,11 +90,11 @@ impl ResourceRecord {
         Ok(rr)
     }
 
-    fn parse_ttl(unparsed: &mut &[u8]) -> anyhow::Result<i32> {
+    fn parse_ttl(unparsed: &mut &[u8]) -> anyhow::Result<u32> {
         if unparsed.remaining() < 4 {
             anyhow::bail!("incomplete RR TTL");
         }
-        Ok(unparsed.get_i32())
+        Ok(unparsed.get_u32())
     }
 
     pub fn serialize(&self) -> anyhow::Result<Vec<u8>> {
@@ -102,7 +102,7 @@ impl ResourceRecord {
         buf.append(&mut name::serialize(&self.name, None)?);
         buf.put_u16(self.r#type.serialize());
         buf.put_u16(self.class.serialize());
-        buf.put_i32(self.ttl);
+        buf.put_u32(self.ttl);
         let mut data = self.data.serialize()?;
         buf.put_u16(data.len() as u16);
         buf.append(&mut data);
@@ -1119,7 +1119,7 @@ mod test {
         expected.append(&mut name::serialize(&rr.name, None)?);
         expected.put_u16(rr.r#type.serialize());
         expected.put_u16(rr.class.serialize());
-        expected.put_i32(rr.ttl);
+        expected.put_u32(rr.ttl);
         let data_ser = rr.data.serialize()?;
         expected.put_u16(data_ser.len() as u16);
         data_ser.iter().for_each(|b| expected.put_u8(*b));
