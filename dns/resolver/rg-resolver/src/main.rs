@@ -1,10 +1,10 @@
-use connection::Connection;
+use client::Client;
 use std::net::{Ipv4Addr, SocketAddrV4};
-use tokio::net::TcpListener;
-use tracing::info;
+use tokio::net::{TcpListener, TcpStream};
+use tracing::{error, info};
 use tracing_subscriber;
 
-mod connection;
+mod client;
 mod message;
 mod name;
 mod net;
@@ -21,16 +21,20 @@ async fn main() -> anyhow::Result<()> {
     let listener = TcpListener::bind(SocketAddrV4::new(Ipv4Addr::UNSPECIFIED, PORT)).await?;
     loop {
         let (stream, _) = listener.accept().await?;
-        let mut connection = Connection::new(stream);
-        info!("Accepted new client");
         tokio::spawn(async move {
-            while let Some(domain_name) = connection.next_request().await? {
-                // TODO: Each request needs a unique ID in the request from the client.
-                println!("Processing request for {domain_name}");
+            if let Err(e) = handle_client(stream).await {
+                error!("failed to handle client: {e}");
             }
-
-            anyhow::Result::<()>::Ok(())
         });
+    }
+
+    async fn handle_client(stream: TcpStream) -> anyhow::Result<()> {
+        let mut client = Client::new(stream).await?;
+        info!("Accepted new client: [{}]", client.name());
+        while let Some(domain_name) = client.next_request().await? {
+            // TODO: Each request needs a unique ID in the request from the client.
+            println!("Processing request for {domain_name}");
+        }
     }
 
     #[allow(unreachable_code)]
