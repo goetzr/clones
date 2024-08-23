@@ -1,26 +1,28 @@
 use anyhow::Context;
 use bytes::Buf;
 use tokio::io::AsyncReadExt;
+use tokio::io::BufReader;
 use tokio::io::ErrorKind;
 use tokio::net::TcpStream;
 
 pub struct Client {
-    stream: TcpStream,
+    reader: BufReader<TcpStream>,
     name: String,
 }
 
 impl Client {
-    pub async fn new(mut stream: TcpStream) -> anyhow::Result<Self> {
-        let name = Client::recv_name(&mut stream).await?;
-        Ok(Client { stream, name })
+    pub async fn new(stream: TcpStream) -> anyhow::Result<Self> {
+        let mut reader = BufReader::new(stream);
+        let name = Client::recv_name(&mut reader).await?;
+        Ok(Client { reader, name })
     }
 
     pub fn name(&self) -> &str {
         self.name.as_str()
     }
 
-    async fn recv_name(stream: &mut TcpStream) -> anyhow::Result<String> {
-        let len = match Client::recv_length_byte_impl(stream).await {
+    async fn recv_name(reader: &mut BufReader<TcpStream>) -> anyhow::Result<String> {
+        let len = match Client::recv_length_byte_impl(reader).await {
             Ok(Some(len)) => len,
             Ok(None) => {
                 return Err(anyhow::anyhow!(
@@ -34,7 +36,7 @@ impl Client {
         };
 
         let mut buf = vec![0_u8; len];
-        stream
+        reader
             .read_exact(buf.as_mut_slice())
             .await
             .with_context(|| "failed to receive the client name")?;
@@ -50,23 +52,27 @@ impl Client {
             return Ok(None);
         };
         let mut buf = vec![0; len];
-        self.stream
+        self.reader
             .read_exact(buf.as_mut_slice())
             .await
             .with_context(|| "failed to receive the next request: failed to receive the payload")?;
         let mut buf = &buf[..];
-        // TODO: Pick up here.
+
         let id = buf.get_u8();
-        let domain_name = String::from_utf8(&buf[..])?;
-        Ok(Some(domain_name))
+        // The remainder of the payload contains the domain name.
+        let name = String::from_utf8(buf[..].to_vec())?;
+
+        Ok(Some(ClientRequest::new(id, name)))
     }
 
     async fn recv_length_byte(&mut self) -> anyhow::Result<Option<usize>> {
-        Client::recv_length_byte_impl(&mut self.stream).await
+        Client::recv_length_byte_impl(&mut self.reader).await
     }
 
-    async fn recv_length_byte_impl(stream: &mut TcpStream) -> anyhow::Result<Option<usize>> {
-        match stream.read_u8().await {
+    async fn recv_length_byte_impl(
+        reader: &mut BufReader<TcpStream>,
+    ) -> anyhow::Result<Option<usize>> {
+        match reader.read_u8().await {
             Ok(len) => Ok(Some(len as usize)),
             Err(e) if e.kind() == ErrorKind::UnexpectedEof => Ok(None),
             Err(e) => Err(anyhow::anyhow!(e)),
@@ -75,12 +81,20 @@ impl Client {
 }
 
 pub struct ClientRequest {
-    id: u32,
+    id: u8,
     name: String,
 }
 
 impl ClientRequest {
-    pub fn new(id: u32, name: String) -> Self {
+    pub fn new(id: u8, name: String) -> Self {
         Self { id, name }
+    }
+
+    pub fn id(&self) -> u8 {
+        self.id
+    }
+
+    pub fn name(&self) -> &str {
+        self.name.as_str()
     }
 }

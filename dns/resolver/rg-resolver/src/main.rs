@@ -23,20 +23,23 @@ async fn main() -> anyhow::Result<()> {
         let (stream, _) = listener.accept().await?;
         tokio::spawn(async move {
             if let Err(e) = handle_client(stream).await {
-                error!("failed to handle client: {e}");
+                error!("error while handling client: {e}");
             }
         });
     }
+}
 
-    async fn handle_client(stream: TcpStream) -> anyhow::Result<()> {
-        let mut client = Client::new(stream).await?;
-        info!("Accepted new client: [{}]", client.name());
-        while let Some(domain_name) = client.next_request().await? {
-            // TODO: Each request needs a unique ID in the request from the client.
-            println!("Processing request for {domain_name}");
-        }
+async fn handle_client(stream: TcpStream) -> anyhow::Result<()> {
+    let mut client = Client::new(stream).await?;
+    info!("Accepted new client: [{}]", client.name());
+    while let Some(request) = client.next_request().await? {
+        // TODO: Pick up here. Need to pass the client request to the query processor.
+        println!(
+            "[{}] Processing request for {}...",
+            request.name(),
+            request.id()
+        );
     }
 
-    #[allow(unreachable_code)]
-    anyhow::Result::<()>::Ok(())
+    Ok(())
 }
