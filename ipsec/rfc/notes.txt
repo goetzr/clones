@@ -1,0 +1,72 @@
+Great question — building even a “minimal” IPSec implementation is a big but very educational project. IPSec is not a single protocol, but a *suite* of protocols defined across multiple RFCs. Since your goal is **education** and you just want a “simple VPN” (say, encrypt traffic between two hosts/tunnels), you don’t need the *entire* standards corpus. You can get by with a small subset.
+
+Here’s a breakdown of the **minimum RFCs you’d need to read/implement**:
+
+---
+
+### 1. Core IPSec Protocols
+
+These define the actual packet formats and processing rules:
+
+* **RFC 4301** — *Security Architecture for the Internet Protocol*
+  📌 This is the core architecture doc. It describes concepts like Security Associations (SAs), Security Policy Database (SPD), and Security Association Database (SAD). You’ll need this to understand how the pieces fit.
+
+* **RFC 4302** — *IP Authentication Header (AH)*
+  If you want to support authentication-only mode. But for a *minimum VPN*, you could skip AH and just use ESP.
+
+* **RFC 4303** — *Encapsulating Security Payload (ESP)*
+  This is the workhorse for VPNs. Defines encryption + optional authentication. **Required**.
+
+---
+
+### 2. Key Management
+
+You could hardcode keys for educational purposes, but in real IPSec deployments, keys are negotiated.
+
+* **RFC 5996** (Obsoleted by RFC 7296) — *Internet Key Exchange Protocol Version 2 (IKEv2)*
+  If you want dynamic key exchange. But **for a minimal implementation, you can skip IKE entirely** and use manual keying (static SAs). Manual keying is supported by the architecture, though insecure in practice.
+
+So:
+
+* For **absolute minimum VPN** → skip IKE, use static/manual keys.
+* For **learning full IPSec** → implement IKEv2 (RFC 7296).
+
+---
+
+### 3. Cryptographic Algorithms
+
+You’ll need at least one encryption/authentication algorithm specified:
+
+* **RFC 3602** — AES-CBC with ESP
+* **RFC 4106** — AES-GCM for ESP (better: provides encryption + integrity in one go).
+
+Pick just one (AES-CBC + HMAC-SHA1, or AES-GCM). No need to implement every algorithm.
+
+---
+
+### 4. Optional but Helpful
+
+* **RFC 4306 → RFC 7296** — IKEv2 (if you later want automatic key exchange).
+* **RFC 6071** — IPSec and IKE Security Considerations (good overview).
+
+---
+
+✅ **So, for your educational VPN with static keys, the minimum RFC set is:**
+
+1. **RFC 4301** — IPSec Architecture
+2. **RFC 4303** — ESP
+3. One algorithm RFC (e.g., **RFC 3602** for AES-CBC, or **RFC 4106** for AES-GCM).
+
+(Optional: **RFC 4302** for AH if you want it, and **RFC 7296** for IKEv2 if you want key exchange later.)
+
+---
+
+👉 Suggested path for you:
+
+* First, implement ESP in transport/tunnel mode with static SAs (RFC 4301 + 4303 + AES algo).
+* Then, if you’re still motivated, add IKEv2 (RFC 7296).
+* Finally, add AH if you want completeness.
+
+---
+
+Do you want me to sketch out a **minimal implementation roadmap** (packet parsing, encryption/decryption, SA management, etc.) so you’d know exactly what the coding steps look like?
