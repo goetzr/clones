@@ -1,5 +1,87 @@
 # General
 
+# A Day in the Life of a Docker Container
+Let's trace what actually happens when you run:
+	docker run nginx
+## Phase 1: Creation - Building the Container's World
+- Image resolution: Docker pulls the nginx image if it's not already on your system - layer by layer
+- Namespace createion: Docker sets up isolated namespaces for PID, network, mount, UTS, IPC, and more -  your container's private universe
+- Filesystem preparation: Docker assembles the image layers using a union fileystem and adds a writer layer on top
+- Network setup: Docker connects the container to a virtual bridge, assigns it a private IP, and sets up port mappings if needed
+- cgroup setup: Docker applies any CPU, memory, and I/O limits you've specified using --memory or --cpus
+## Phase 2: Start - Bringing the Container to Life
+- Process creation: Docker launches the main process (e.g. nginx) as PID1 inside the container's namespace
+- Apply runtime configs: Docker injects environment variables, mounts volumes, and sets the working directory
+- Enforce security: Security policies (SELinux, AppArmor) are applied
+
+Your container is now "alive", isolated, and running your app.
+## Phase 3: Runtime - Container in Action
+While running Docker:
+	- Monitors resources with cgroups
+	- Handles networking via NAT or bridge interfaces
+	- Captures output from stdout/stderr (available via docker logs)
+	- Performs copy-on-write if files are modified
+## Phase 4: Stop - Graceful or Forced Shutdown
+When you stop a container (docker stop), Docker:
+- Sends a SIGTERM to PID 1 (your app)
+- Waits (default: 10 seconds) for it to exit cleanly
+- If it doesn't, sends a SIGKILL to force termination
+- Releases memory, CPU, and I/O allocations from cgroups
+
+Use this phase to test graceful shutdown logic in your apps.
+
+Also the timeout can be adjusted with the -t or --time flag (e.g. docker stop -t 30 my-container), which is useful for applications that need a longer shutdown period
+## Phase 5: Removal - Cleaning Up the Scene
+When you remove a container:
+- Docker deletes the writable container layer
+- Tears down all namespaces
+- Destroys the virtual network interface
+- Cleans up cgroup assignments and logs
+
+At this point, the container is completely gone - but your image layers still exist, ready to be reused.
+# Putting It All Together: Inspecting a Running Container
+Want to see all the kernel magic in action? Let's spin up a container and peek inside its namespaces, cgroups, and filesystem.
+
+\# Start a container with resource limits
+docker run -d --name explore-demo --memory="256m" -cpus="0.5" nginx
+
+Step 1: Examine Namespace Bindings
+
+docker exec explore-demo ls -la /proc/1/ns/
+
+You'll see symbolic links like net:\[4026532575\], which show that this process is in its own set of namespaces.
+
+Step 2: Check Resource Usage and Limits
+
+docker stats explore-demo
+
+This shows live CPU, memory, and I/O consumption - all enforced by cgroups.
+
+Step 3: Explore the Image Layers
+
+docker image inspect nginx | jq '.\[0\].RootFS.Layers'
+
+This lists the actual image layers stacked together by Docker's union filesystem.
+
+Step 4: See What Changed
+
+docker diff explore-demo
+
+This shows files that were added, modified, or deleted in the container's writable layer.
+
+Cleanup
+
+docker stop explore-demo
+
+# Best Practices for Safer Containers
+
+\# Run as non-root user
+FROM ubuntu:20.04
+RUN groupadd -r appuser && useradd -r -g appuser appuser
+USER appuser
+
+\# Set resource limits
+docker run --memory="256m" --cpus="0.5" --read-only my-app
 # Components
 ## Dockerfile
 - Describes the steps to create an image
@@ -74,6 +156,7 @@
 - Manages container storage
 - Provides a higher level API that abstracts away lower level details of container operations
 - Acts as an intermediary between dockerd and runc
+- Exposes a gRPC API
 ## Shim
 - Exists between containerd and runc
 - Enables daemonless containers
@@ -90,11 +173,21 @@
 	- Mounts pseudo filesystems like /proc and /sys
 	- Finally performs pivot_root() to make the container's rootfs the actual /
 	- After that, the original root is unmounted and detached
+- Executable CLI tool
+- Serves as the reference implementation of the Open Container Initiative (OCI) runtime specification
 ## Layered Filesystem
 - Filesystem is broken down into different layers so that the same layer can be used for multiple images
 - Achieved using OverlayFS
 - Each layer is compressed
 - A JSON metadata file of an image states the order of the layers to create a complete filesystem
+- Image each docker image layer is a clear sheet of plastic with some files drawn on it:
+	- The ubuntu:20.04 base image is the bottom sheet - a full Linux filesystem
+	- Each Dockerfile instruction (RUN, COPY, etc.) adds a new layer on top
+	- When you run a container, Docker adds a writable layer on top. It then just looks down through the stack to get the full view.
+- If you change a file, Docker copies it to the top sheet and modifies it there. This is called Copy-on-Write (CoW)
+- When you pull a new version of an image, only the new layers are fetched:
+	- docker pull nginx:1.21
+	- Some layers will say: "Already exists"
 ### OverlayFS
 - Union filesystem
 - Start with a base layer (directories) on top of which a new layer is added
@@ -206,6 +299,12 @@
 - Connects your terminal directly to a running container's main process
 - Allows you to see live log output, prompt, etc., and even interact with it if the process accepts input
 ## docker images
+## docker stats
+- Get live metrics on resource usage
+## docker inspect
+## docker logs
+## docker network
+
 
 
 

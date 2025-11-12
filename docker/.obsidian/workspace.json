@@ -20,8 +20,23 @@
               "icon": "lucide-file",
               "title": "Research"
             }
+          },
+          {
+            "id": "e94cb8c865af4d01",
+            "type": "leaf",
+            "state": {
+              "type": "markdown",
+              "state": {
+                "file": "Notes/2025/11-11 (11 Nov).md",
+                "mode": "preview",
+                "source": true
+              },
+              "icon": "lucide-file",
+              "title": "11-11 (11 Nov)"
+            }
           }
-        ]
+        ],
+        "currentTab": 1
       }
     ],
     "direction": "vertical"
@@ -166,10 +181,13 @@
       "bases:Create new base": false
     }
   },
-  "active": "3acd3c84f662af5b",
+  "active": "e94cb8c865af4d01",
   "lastOpenFiles": [
+    "Research.md",
+    "Notes/2025/11-11 (11 Nov).md",
+    "Notes/2025",
+    "Notes",
     "Research",
-    "Welcome.md",
-    "Research.md"
+    "Welcome.md"
   ]
 }
