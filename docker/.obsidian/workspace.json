@@ -197,15 +197,22 @@
   },
   "active": "a669bc4808359594",
   "lastOpenFiles": [
+    "src/pch.h",
+    "src/http.h",
+    "src/http.cpp",
+    "src/net.h",
+    "build/CMakeFiles/my_containerd.dir/link.d",
+    "build/my_containerd",
+    "build/CMakeFiles/my_containerd.dir/main.cpp.o",
+    "build/CMakeFiles/my_containerd.dir/main.cpp.ddi",
+    "build/CMakeFiles/my_containerd.dir/main.cpp.o.d",
+    "build/CMakeFiles/my_containerd.dir/CXX.dd",
+    "build/CMakeFiles/my_containerd.dir/CXXModules.json",
     "Notes/2025/11-11 (11 Nov).md",
     "Notes/2025/11-12 (12 Nov).md",
     "Notes/2025/11-13 (13 Nov).md",
     "runc/AI Suggested  Learning Path.md",
     "Research.md",
-    "runc",
-    "Notes/2025",
-    "Notes",
-    "Research",
     "Welcome.md"
   ]
 }
