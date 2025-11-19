@@ -12,6 +12,8 @@ Curl::Curl()
     if (handle == nullptr) {
         throw new CurlError("curl_easy_init failed");
     }
+
+    
 }
 
 std::string Curl::get(const std::string& url) {
@@ -20,6 +22,22 @@ std::string Curl::get(const std::string& url) {
     if (result != CURLE_OK) {
         throw new CurlError(result);
     }
+
+    std::string response;
+    response.reserve(1024 * 1024);
+    result = curl_easy_setopt(m_handle, CURLOPT_WRITEFUNCTION, [&response] (
+        char* ptr,
+        size_t size,
+        size_t nmemb,
+        void* _userdata
+    ) -> size_t {
+        if (nmemb != 0) {
+            response.append(ptr, nmemb);
+        }
+
+        return nmemb;
+    });
+    
 }
 
 std::ostream& operator>>(std::ostream& os, const CurlError& error) {
