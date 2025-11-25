@@ -1,5 +1,8 @@
 #include "http.h"
 
+CurlInit Curl::m_init;
+std::once_flag Curl::m_once_init;
+
 Curl::Curl()
     : m_handle(nullptr)
 {
@@ -38,7 +41,6 @@ std::string Curl::get(const std::string& url, const HeaderMap& headers) {
         return nmemb;
     });
     
-    // TODO: Pick up here.
     // CURLcode curl_easy_setopt(CURL *handle, CURLOPT_HTTPHEADER,
                           // struct curl_slist *headers);
     CurlStringList headers;
